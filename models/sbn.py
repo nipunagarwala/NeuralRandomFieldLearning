@@ -16,12 +16,12 @@ from distributions import log_bernoulli
 
 class SBN(Model):
   """Sigmoid Belief Network trained using Neural Variational Inference"""
-  def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
+  def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam', 
               opt_params={'lr' : 1e-3, 'b1': 0.9, 'b2': 0.99}):
 
     # invoke parent constructor
     Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
-
+  
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
     n_lat    = 200 # latent stochastic variables
@@ -31,7 +31,7 @@ class SBN(Model):
     hid_nl   = lasagne.nonlinearities.tanh
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
+    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
                                      input_var=X)
     l_q_hid = lasagne.layers.DenseLayer(
         l_q_in, num_units=n_hid,
@@ -57,7 +57,7 @@ class SBN(Model):
         b=lasagne.init.Constant(0.))
 
     # create control variate (baseline) network
-    l_cv_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
+    l_cv_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
                                         input_var=X)
     l_cv_hid = lasagne.layers.DenseLayer(
         l_cv_in, num_units=n_hid_cv,
@@ -67,8 +67,8 @@ class SBN(Model):
         nonlinearity=None)
 
     # create variables for centering signal
-    c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
-    v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+    c = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
+    v = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
 
     return l_p_mu, l_q_mu, l_q_sample, l_cv, c, v
 
@@ -130,7 +130,7 @@ class SBN(Model):
     c_new = 0.8*c + 0.2*l_avg
     v_new = 0.8*v + 0.2*l_std
     l = (l - c_new) / v_new
-
+  
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
 
@@ -179,3 +179,4 @@ class SBN(Model):
     cv_updates = {c : c_new, v : v_new}
 
     return OrderedDict( grad_updates.items() + cv_updates.items() )
+    
