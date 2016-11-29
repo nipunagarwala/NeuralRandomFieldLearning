@@ -23,7 +23,7 @@ class DADGM(Model):
     self.model = model
 
     Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
-  
+
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
     n_lat = 200 # latent stochastic variables
@@ -37,7 +37,7 @@ class DADGM(Model):
     # create the encoder network
 
     # create q(a|x)
-    l_qa_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
+    l_qa_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
                                      input_var=X)
     l_qa_hid = lasagne.layers.DenseLayer(
         l_qa_in, num_units=n_hid,
@@ -125,7 +125,7 @@ class DADGM(Model):
         nonlinearity=relu_shift)
 
     # create control variate (baseline) network
-    l_cv_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
+    l_cv_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
                                         input_var=X)
     l_cv_hid = lasagne.layers.DenseLayer(
         l_cv_in, num_units=n_hid_cv,
@@ -135,8 +135,8 @@ class DADGM(Model):
         nonlinearity=None)
 
     # create variables for centering signal
-    c = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
-    v = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
+    c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+    v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
 
     # store certain input layers for downstream (quick hack)
     self.input_layers = (l_qa_in, l_qz_in, l_px_in)
@@ -159,7 +159,7 @@ class DADGM(Model):
     # load network output
     qa_mu, qa_logsigma, a = lasagne.layers.get_output([l_qa_mu, l_qa_logsigma, l_qa],
                                                       deterministic=deterministic)
-    qz_mu, qz_logsigma, z = lasagne.layers.get_output([l_qz_mu, l_qz_logsigma, l_qz], {l_qz_in : a, l_qa_in : X}, 
+    qz_mu, qz_logsigma, z = lasagne.layers.get_output([l_qz_mu, l_qz_logsigma, l_qz], {l_qz_in : a, l_qa_in : X},
                                                     deterministic=deterministic)
     pa_mu, pa_logsigma = lasagne.layers.get_output([l_pa_mu, l_pa_logsigma], z,
                                                    deterministic=deterministic)
@@ -167,7 +167,7 @@ class DADGM(Model):
     if self.model == 'bernoulli':
       px_mu = lasagne.layers.get_output(l_px_mu, z, deterministic=deterministic)
     elif self.model == 'gaussian':
-      px_mu, px_logsigma  = lasagne.layers.get_output([l_px_mu, l_px_logsigma], z, 
+      px_mu, px_logsigma  = lasagne.layers.get_output([l_px_mu, l_px_logsigma], z,
                                                        deterministic=deterministic)
 
     # entropy term
@@ -192,10 +192,10 @@ class DADGM(Model):
     log_paxz = log_pa_given_z + log_px_given_z + log_pz
 
     # experiment: uniform prior p(a)
-    a_prior_sigma = T.cast(T.ones_like(qa_logsigma), dtype=theano.config.floatX)
-    a_prior_mu = T.cast(T.zeros_like(qa_mu), dtype=theano.config.floatX)
-    log_pa = log_normal(a, a_prior_mu,  a_prior_sigma).sum(axis=1)
-    log_paxz = log_pa + log_px_given_z + log_pz
+    # a_prior_sigma = T.cast(T.ones_like(qa_logsigma), dtype=theano.config.floatX)
+    # a_prior_mu = T.cast(T.zeros_like(qa_mu), dtype=theano.config.floatX)
+    # log_pa = log_normal(a, a_prior_mu,  a_prior_sigma).sum(axis=1)
+    # log_paxz = log_pa + log_px_given_z + log_pz
 
     # save them for later
     if deterministic == False:
@@ -236,7 +236,7 @@ class DADGM(Model):
 
     # load neural net outputs (probabilities have been precomputed)
     log_paxz, log_px_given_z, log_pz = self.log_paxz, self.log_px_given_z, self.log_pz
-    log_qa_given_x, log_qz_given_ax = self.log_qa_given_x, self.log_qz_given_ax    
+    log_qa_given_x, log_qz_given_ax = self.log_qa_given_x, self.log_qz_given_ax
     log_qza_given_x = log_qz_given_ax + log_qa_given_x
     cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
 
@@ -246,7 +246,7 @@ class DADGM(Model):
     c_new = 0.8*c + 0.2*l_avg
     v_new = 0.8*v + 0.2*l_std
     l = (l0 - c_new) / v_new
-  
+
     # compute grad wrt p
     p_grads = T.grad(-log_paxz.mean(), p_params)
 
@@ -281,7 +281,7 @@ class DADGM(Model):
 
     if self.model == 'gaussian':
         raise NotImplementedError('The code below needs to implement Gaussians')
-    
+
     # load params
     p_params  = lasagne.layers.get_all_params(
         [l_px_mu], trainable=True)
@@ -305,7 +305,7 @@ class DADGM(Model):
 
     # load neural net outputs (probabilities have been precomputed)
     log_paxz, log_px_given_z, log_pz = self.log_paxz, self.log_px_given_z, self.log_pz
-    log_qa_given_x, log_qz_given_ax = self.log_qa_given_x, self.log_qz_given_ax    
+    log_qa_given_x, log_qz_given_ax = self.log_qa_given_x, self.log_qz_given_ax
     log_qza_given_x = log_qz_given_ax + log_qa_given_x
     cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
 
