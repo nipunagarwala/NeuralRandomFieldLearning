@@ -21,7 +21,7 @@ class VAE(Model):
 
     # invoke parent constructor
     Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
-  
+
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
     n_lat = 200 # latent stochastic variabels
@@ -31,7 +31,7 @@ class VAE(Model):
              else T.nnet.softplus
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
+    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
                                      input_var=X)
     l_q_hid = lasagne.layers.DenseLayer(
         l_q_in, num_units=n_hid,
@@ -45,7 +45,7 @@ class VAE(Model):
 
     # create the decoder network
     l_p_z = GaussianSampleLayer(l_q_mu, l_q_logsigma)
-    
+
     l_p_hid = lasagne.layers.DenseLayer(
         l_p_z, num_units=n_hid,
         nonlinearity=hid_nl,
@@ -88,7 +88,7 @@ class VAE(Model):
           = lasagne.layers.get_output(self.network, deterministic=deterministic)
 
     # first term of the ELBO: kl-divergence (using the closed form expression)
-    kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu) 
+    kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu)
                          - T.exp(2 * q_logsigma), axis=1).mean()
 
     # second term: log-likelihood of the data under the model

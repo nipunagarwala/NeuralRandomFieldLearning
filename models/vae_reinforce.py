@@ -33,36 +33,47 @@ class VAE(Model):
              else T.nnet.softplus
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
-                                     input_var=X)
+    l_q_in = lasagne.layers.InputLayer(
+        shape=(None, n_chan, n_dim, n_dim),
+        input_var=X)
     l_q_hid = lasagne.layers.DenseLayer(
-        l_q_in, num_units=n_hid,
+        l_q_in,
+        num_units=n_hid,
         nonlinearity=hid_nl)
     l_q_mu = lasagne.layers.DenseLayer(
-        l_q_hid, num_units=n_lat,
+        l_q_hid,
+        num_units=n_lat,
         nonlinearity=None)
     l_q_logsigma = lasagne.layers.DenseLayer(
-        l_q_hid, num_units=n_lat,
+        l_q_hid,
+        num_units=n_lat,
         nonlinearity=None)
+    l_q_sample = GaussianSampleLayer(l_q_mu, l_q_logsigma)
 
     # create the decoder network
-    l_p_z = GaussianSampleLayer(l_q_mu, l_q_logsigma)
-
+    # pass l_q_sample into l_p_in
+    l_p_in = lasagne.layers.InputLayer((None, n_lat))
     l_p_hid = lasagne.layers.DenseLayer(
-        l_p_z, num_units=n_hid,
+        l_p_in,
+        num_units=n_hid,
         nonlinearity=hid_nl,
         W=lasagne.init.GlorotUniform())
     l_p_mu, l_p_logsigma = None, None
 
     if self.model == 'bernoulli':
-      l_sample = lasagne.layers.DenseLayer(l_p_hid, num_units=n_out,
+      l_p_mu = lasagne.layers.DenseLayer(
+          l_p_hid,
+          num_units=n_out,
           nonlinearity = lasagne.nonlinearities.sigmoid,
           W=lasagne.init.GlorotUniform(),
           b=lasagne.init.Constant(0.))
+      # sample is bernoulli
+      l_p_sample = l_p_mu
 
     elif self.model == 'gaussian':
       l_p_mu = lasagne.layers.DenseLayer(
-          l_p_hid, num_units=n_out,
+          l_p_hid,
+          num_units=n_out,
           nonlinearity=None)
       # relu_shift is for numerical stability - if training data has any
       # dimensions where stdev=0, allowing logsigma to approach -inf
@@ -70,19 +81,22 @@ class VAE(Model):
       # stdev >= exp(-1 * relu_shift)
       relu_shift = 10
       l_p_logsigma = lasagne.layers.DenseLayer(
-          l_p_hid, num_units=n_out,
+          l_p_hid,
+          num_units=n_out,
           nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift)
-
-      l_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
+      l_p_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
     # create control variate (baseline) network
-    l_cv_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
-                                        input_var=X)
+    l_cv_in = lasagne.layers.InputLayer(
+        shape=(None, n_chan, n_dim, n_dim),
+        input_var=X)
     l_cv_hid = lasagne.layers.DenseLayer(
-        l_cv_in, num_units=n_hid_cv,
+        l_cv_in,
+        num_units=n_hid_cv,
         nonlinearity=hid_nl)
     l_cv = lasagne.layers.DenseLayer(
-        l_cv_hid, num_units=1,
+        l_cv_hid,
+        num_units=1,
         nonlinearity=None)
 
     # create variables for centering signal
@@ -91,7 +105,7 @@ class VAE(Model):
 
     return l_p_mu, l_p_logsigma, \
            l_q_mu, l_q_logsigma, \
-           l_p_z, l_sample, \
+           l_q_sample, l_p_sample, \
            l_cv, c, v
 
   def create_objectives(self, deterministic=False):
@@ -101,37 +115,47 @@ class VAE(Model):
     # load network
     l_p_mu, l_p_logsigma, \
     l_q_mu, l_q_logsigma, \
-    l_p_z, l_sample, \
+    l_q_sample, l_p_sample, \
     l_cv, c, v = self.network
 
     # load network output
     if self.model == 'bernoulli':
-      q_mu, q_logsigma, sample \
+      q_mu, q_logsigma, q_sample \
           = lasagne.layers.get_output(
-              [l_q_mu, l_q_logsigma, l_sample],
+              [l_q_mu, l_q_logsigma, l_q_sample],
               deterministic=deterministic)
+      p_sample = lasagne.layers.get_output(
+          l_p_sample,
+          {l_p_in: q_sample},
+          deterministic=deterministic)
     elif self.model == 'gaussian':
-      p_mu, p_logsigma, q_mu, q_logsigma, _ \
+      q_mu, q_logsigma, q_sample \
           = lasagne.layers.get_output(
-              [l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_sample],
+              [l_q_mu, l_q_logsigma, l_q_sample],
+              deterministic=deterministic)
+      p_mu, p_logsigma, p_sample \
+          = lasagne.layers.get_output(
+              [l_p_mu, l_p_logsigma, l_p_sample],
+              {l_p_in: q_sample},
               deterministic=deterministic)
 
     # first term of the ELBO: kl-divergence (using the closed form expression)
     kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu)
                          - T.exp(2 * q_logsigma), axis=1).mean()
+    log_qz_given_x = log_normal2(l_p_z, l_q_mu, l_q_logsigma).sum(axis=1)
 
     # second term: log-likelihood of the data under the model
     if self.model == 'bernoulli':
-      logpxz = -lasagne.objectives.binary_crossentropy(sample, X.flatten(2)).sum(axis=1).mean()
+      log_pxz = -lasagne.objectives.binary_crossentropy(p_sample, X.flatten(2)).sum(axis=1)
     elif self.model == 'gaussian':
       def log_lik(x, mu, log_sig):
           return T.sum(-(np.float32(0.5 * np.log(2 * np.pi)) + log_sig)
                         - 0.5 * T.sqr(x - mu) / T.exp(2 * log_sig), axis=1)
 
-    loss = -1 * (logpxz + kl_div)
+    loss = -1 * (log_pxz.mean() + kl_div)
 
-    self.log_pxz = logpxz
-    self.log_qz_given_x = log_normal2(l_p_z, l_q_mu, l_q_logsigma).sum(axis=1)
+    self.log_pxz = log_pxz
+    self.log_qz_given_x = log_qz_given_x
 
     # we don't use the spearate accuracy metric right now
     return loss, -kl_div
@@ -142,7 +166,7 @@ class VAE(Model):
     # load networks
     l_p_mu, l_p_logsigma, \
     l_q_mu, l_q_logsigma, \
-    l_p_z, l_sample, \
+    l_q_sample, l_p_sample, \
     l_cv, c, v = self.network
 
     # load params
@@ -182,15 +206,10 @@ class VAE(Model):
     return cgrads # concatenated grads
 
   def get_params(self):
-    l_p_mu, l_p_logsigma, \
-    l_q_mu, l_q_logsigma, \
-    l_p_z, l_sample, \
-    l_cv, c, v = self.network
-
-    p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
-    q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
+    _, _, _, _, _, l_p_sample, l_cv, c, v = self.network
+    pq_params = lasagne.layers.get_all_params(l_p_sample, trainable=True)
     cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
-    return p_params + q_params + cv_params
+    return pq_params + cv_params
 
   def create_updates(self, grads, params, alpha, opt_alg, opt_params):
     # call super-class to generate SGD/ADAM updates
