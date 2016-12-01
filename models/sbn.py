@@ -94,8 +94,9 @@ class SBN(Model):
     log_pxz = log_pz + log_px_given_z
 
     # save them for later
-    self.log_pxz = log_pxz
-    self.log_qz_given_x = log_qz_given_x
+    if deterministic == False:
+      self.log_pxz = log_pxz
+      self.log_qz_given_x = log_qz_given_x
 
     return log_pxz.flatten(), log_qz_given_x.flatten()
 

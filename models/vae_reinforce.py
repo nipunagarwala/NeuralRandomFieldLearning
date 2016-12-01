@@ -13,8 +13,10 @@ from distributions import log_bernoulli, log_normal2
 
 # ----------------------------------------------------------------------------
 
-class VAE(Model):
-  """Variational Autoencoder with Gaussian visible and latent variables"""
+class VAE_REINFORCE(Model):
+  """Variational Autoencoder with Gaussian visible and latent variables
+     Trained by REINFORCE instead of vanilla SGD"""
+
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, model='bernoulli',
                 opt_alg='adam', opt_params={'lr' : 1e-3, 'b1': 0.9, 'b2': 0.99}):
     # save model that wil be created
@@ -108,9 +110,10 @@ class VAE(Model):
            l_q_sample, l_p_sample, \
            l_cv, c, v
 
-  def create_objectives(self, deterministic=False):
+  def _create_components(self, deterministic=False):
     # load network input
     X = self.inputs[0]
+    x = X.flatten(2)
 
     # load network
     l_p_mu, l_p_logsigma, \
@@ -124,8 +127,8 @@ class VAE(Model):
           = lasagne.layers.get_output(
               [l_q_mu, l_q_logsigma, l_q_sample],
               deterministic=deterministic)
-      p_sample = lasagne.layers.get_output(
-          l_p_sample,
+      p_mu = lasagne.layers.get_output(
+          l_p_mu,
           {l_p_in: q_sample},
           deterministic=deterministic)
     elif self.model == 'gaussian':
@@ -139,26 +142,35 @@ class VAE(Model):
               {l_p_in: q_sample},
               deterministic=deterministic)
 
-    # first term of the ELBO: kl-divergence (using the closed form expression)
-    kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu)
-                         - T.exp(2 * q_logsigma), axis=1).mean()
-    log_qz_given_x = log_normal2(l_p_z, l_q_mu, l_q_logsigma).sum(axis=1)
+    # entropy term
+    log_qz_given_x = log_normal2(l_q_sample, l_q_mu, l_q_logsigma).sum(axis=1)
 
-    # second term: log-likelihood of the data under the model
+    # expected p(x,z) term
+    z_prior = T.ones_like(q_sample)*np.float32(0.5)
+    log_pz = log_bernoulli(q_sample, z_prior).sum(axis=1)
     if self.model == 'bernoulli':
-      log_pxz = -lasagne.objectives.binary_crossentropy(p_sample, X.flatten(2)).sum(axis=1)
+      log_px_given_z = log_bernoulli(x, p_mu).sum(axis=1)
     elif self.model == 'gaussian':
-      def log_lik(x, mu, log_sig):
-          return T.sum(-(np.float32(0.5 * np.log(2 * np.pi)) + log_sig)
-                        - 0.5 * T.sqr(x - mu) / T.exp(2 * log_sig), axis=1)
+      log_px_given_z = log_normal2(x, p_mu, p_logsigma).sum(axis=1)
 
-    loss = -1 * (log_pxz.mean() + kl_div)
+    log_pxz = log_px_given_z + log_pz
 
-    self.log_pxz = log_pxz
-    self.log_qz_given_x = log_qz_given_x
+    # save them for later
+    if deterministic == False:
+      self.log_pxz = log_pxz
+      self.log_qz_given_x = log_qz_given_x
 
-    # we don't use the spearate accuracy metric right now
-    return loss, -kl_div
+    return log_pxz.flatten(), log_qz_given_x.flatten()
+
+  def create_objectives(self, deterministic=False):
+    # load probabilities
+    log_pxz, log_qz_given_x = self._create_components(deterministic=deterministic)
+
+    # compute the lower bound
+    elbo = T.mean(log_pxz - log_qz_given_x)
+
+    # we don't use the second accuracy metric right now
+    return -elbo, -T.mean(log_qz_given_x)
 
   def create_gradients(self, loss, deterministic=False):
     from theano.gradient import disconnected_grad as dg
