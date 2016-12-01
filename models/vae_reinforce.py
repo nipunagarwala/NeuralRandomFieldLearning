@@ -27,12 +27,12 @@ class VAE_REINFORCE(Model):
 
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
-    n_lat = 200 # latent stochastic variabels
-    n_hid = 500 # size of hidden layer in encoder/decoder
+    n_lat    = 200 # latent stochastic variabels
+    n_hid    = 500 # size of hidden layer in encoder/decoder
     n_hid_cv = 500 # size of hidden layer in control variate net
-    n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
-    hid_nl = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
-             else T.nnet.softplus
+    n_out    = n_dim * n_dim * n_chan # total dimensionality of ouput
+    hid_nl   = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
+               else T.nnet.softplus
 
     # create the encoder network
     l_q_in = lasagne.layers.InputLayer(
@@ -69,8 +69,7 @@ class VAE_REINFORCE(Model):
           nonlinearity = lasagne.nonlinearities.sigmoid,
           W=lasagne.init.GlorotUniform(),
           b=lasagne.init.Constant(0.))
-      # sample is bernoulli
-      l_p_sample = l_p_mu
+      # l_p_sample = l_p_mu
 
     elif self.model == 'gaussian':
       l_p_mu = lasagne.layers.DenseLayer(
@@ -86,7 +85,7 @@ class VAE_REINFORCE(Model):
           l_p_hid,
           num_units=n_out,
           nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift)
-      l_p_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
+      # l_p_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
     # create control variate (baseline) network
     l_cv_in = lasagne.layers.InputLayer(
@@ -107,8 +106,7 @@ class VAE_REINFORCE(Model):
 
     return l_p_mu, l_p_logsigma, \
            l_q_mu, l_q_logsigma, \
-           l_q_sample, l_p_sample, \
-           l_cv, c, v
+           l_q_sample, l_cv, c, v
 
   def _create_components(self, deterministic=False):
     # load network input
@@ -118,41 +116,36 @@ class VAE_REINFORCE(Model):
     # load network
     l_p_mu, l_p_logsigma, \
     l_q_mu, l_q_logsigma, \
-    l_q_sample, l_p_sample, \
-    l_cv, c, v = self.network
+    l_q_sample, l_cv, c, v = self.network
 
     # load network output
     if self.model == 'bernoulli':
-      q_mu, q_logsigma, q_sample \
-          = lasagne.layers.get_output(
-              [l_q_mu, l_q_logsigma, l_q_sample],
-              deterministic=deterministic)
+      z, q_mu, q_logsigma = lasagne.layers.get_output(
+        [l_q_sample, l_q_mu, l_q_logsigma],
+        deterministic=deterministic)
       p_mu = lasagne.layers.get_output(
-          l_p_mu,
-          {l_p_in: q_sample},
-          deterministic=deterministic)
+        l_p_mu,
+        {l_p_in: z},
+        deterministic=deterministic)
     elif self.model == 'gaussian':
-      q_mu, q_logsigma, q_sample \
-          = lasagne.layers.get_output(
-              [l_q_mu, l_q_logsigma, l_q_sample],
-              deterministic=deterministic)
-      p_mu, p_logsigma, p_sample \
-          = lasagne.layers.get_output(
-              [l_p_mu, l_p_logsigma, l_p_sample],
-              {l_p_in: q_sample},
-              deterministic=deterministic)
+      z, q_mu, q_logsigma = lasagne.layers.get_output(
+        [l_q_sample, l_q_mu, l_q_logsigma],
+        deterministic=deterministic)
+      p_mu, p_logsigma = lasagne.layers.get_output(
+        [l_p_mu, l_p_logsigma],
+        {l_p_in: z},
+        deterministic=deterministic)
 
     # entropy term
-    log_qz_given_x = log_normal2(l_q_sample, l_q_mu, l_q_logsigma).sum(axis=1)
+    log_qz_given_x = log_normal2(z, q_mu, q_logsigma).sum(axis=1)
 
     # expected p(x,z) term
-    z_prior = T.ones_like(q_sample)*np.float32(0.5)
-    log_pz = log_bernoulli(q_sample, z_prior).sum(axis=1)
+    z_prior = T.ones_like(z)*np.float32(0.5)
+    log_pz = log_bernoulli(z, z_prior).sum(axis=1)
     if self.model == 'bernoulli':
       log_px_given_z = log_bernoulli(x, p_mu).sum(axis=1)
     elif self.model == 'gaussian':
       log_px_given_z = log_normal2(x, p_mu, p_logsigma).sum(axis=1)
-
     log_pxz = log_px_given_z + log_pz
 
     # save them for later
@@ -178,11 +171,13 @@ class VAE_REINFORCE(Model):
     # load networks
     l_p_mu, l_p_logsigma, \
     l_q_mu, l_q_logsigma, \
-    l_q_sample, l_p_sample, \
-    l_cv, c, v = self.network
+    _, l_cv, c, v = self.network
 
     # load params
-    p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
+    if self.model == 'bernoulli':
+      p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
+    elif self.model == 'gaussian':
+      p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
     q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
     cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
 
@@ -218,17 +213,25 @@ class VAE_REINFORCE(Model):
     return cgrads # concatenated grads
 
   def get_params(self):
-    _, _, _, _, _, l_p_sample, l_cv, c, v = self.network
-    pq_params = lasagne.layers.get_all_params(l_p_sample, trainable=True)
+    l_p_mu, l_p_logsigma, \
+    l_q_mu, l_q_logsigma, \
+    _, l_cv, _, _ = self.network
+
+    if self.model == 'bernoulli':
+      p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
+    elif self.model == 'gaussian':
+      p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
+    q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
     cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
-    return pq_params + cv_params
+
+    return p_params + q_params + cv_params
 
   def create_updates(self, grads, params, alpha, opt_alg, opt_params):
     # call super-class to generate SGD/ADAM updates
     grad_updates = Model.create_updates(self, grads, params, alpha, opt_alg, opt_params)
 
     # create updates for centering signal
-    _, _, _, _, _, _, l_cv, c, v = self.network
+    _, _, _, _, _, l_cv, c, v = self.network
     log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
     cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
 
