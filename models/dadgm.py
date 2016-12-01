@@ -227,8 +227,8 @@ class DADGM(Model):
 
     # load params
     p_params  = lasagne.layers.get_all_params(
-        [l_px_mu], trainable=True)
-        # [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
+        # [l_px_mu], trainable=True)
+        [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
     qa_params  = lasagne.layers.get_all_params(l_qa, trainable=True)
     qz_params  = lasagne.layers.get_all_params(l_qz, trainable=True)
     cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
@@ -284,8 +284,8 @@ class DADGM(Model):
 
     # load params
     p_params  = lasagne.layers.get_all_params(
-        [l_px_mu], trainable=True)
-        # [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
+        # [l_px_mu], trainable=True)
+        [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
     qa_params  = lasagne.layers.get_all_params(l_qa, trainable=True)
     qz_params  = lasagne.layers.get_all_params(l_qz, trainable=True)
     cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
