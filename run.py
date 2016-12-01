@@ -29,16 +29,16 @@ def make_parser():
   plot_parser.set_defaults(func=plot)
 
   plot_parser.add_argument('logfiles', metavar='log', nargs='+')
-  plot_parser.add_argument('--type', default='two', 
+  plot_parser.add_argument('--type', default='two',
                            choices=['two', 'many', 'one-vs-many', 'many-vs-many'])
   plot_parser.add_argument('--out', required=True)
   plot_parser.add_argument('--double', nargs='+', default=[0], type=int)
   plot_parser.add_argument('--col', type=int, default=2)
-  plot_parser.add_argument('--log2', nargs='+') 
+  plot_parser.add_argument('--log2', nargs='+')
 
   # grid
 
-  grid_parser = subparsers.add_parser('grid', 
+  grid_parser = subparsers.add_parser('grid',
     help='Print command for hyperparameter grid search')
   grid_parser.set_defaults(func=grid)
 
@@ -79,34 +79,37 @@ def train(args):
 
   # create model
   if args.model == 'softmax':
-    model = models.Softmax(n_dim=n_dim, n_out=n_out, n_superbatch=args.n_superbatch, 
+    model = models.Softmax(n_dim=n_dim, n_out=n_out, n_superbatch=args.n_superbatch,
                            opt_alg=args.alg, opt_params=p)
   elif args.model == 'mlp':
-    model = models.MLP(n_dim=n_dim, n_out=n_out, n_superbatch=args.n_superbatch, 
+    model = models.MLP(n_dim=n_dim, n_out=n_out, n_superbatch=args.n_superbatch,
                        opt_alg=args.alg, opt_params=p)
   elif args.model == 'cnn':
     model = models.CNN(n_dim=n_dim, n_out=n_out, n_chan=n_channels, model=args.dataset,
-                       n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)  
+                       n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'resnet':
     model = models.Resnet(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)    
+                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'vae':
     model = models.VAE(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)    
+                       n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
+  elif args.model == 'vae_reinforce':
+    model = models.VAE_REINFORCE(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
+                                 n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'sbn':
     model = models.SBN(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)      
+                       n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'adgm':
     model = models.ADGM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)        
+                        n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'dadgm':
     model = models.DADGM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)          
+                         n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   else:
     raise ValueError('Invalid model')
-  
+
   # train model
-  model.fit(X_train, Y_train, X_val, Y_val, 
+  model.fit(X_train, Y_train, X_val, Y_val,
             n_epoch=args.epochs, n_batch=args.n_batch,
             logname=args.logname)
 

@@ -1,6 +1,7 @@
 import time
 import pickle
 import numpy as np
+from collections import OrderedDict
 
 import theano
 import theano.tensor as T
@@ -104,6 +105,9 @@ class VAE_REINFORCE(Model):
     c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
     v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
 
+    # store certain input layers for downstream (quick hack)
+    self.input_layers = {l_q_in, l_p_in, l_cv_in}
+
     return l_p_mu, l_p_logsigma, \
            l_q_mu, l_q_logsigma, \
            l_q_sample, l_cv, c, v
@@ -118,19 +122,20 @@ class VAE_REINFORCE(Model):
     l_q_mu, l_q_logsigma, \
     l_q_sample, l_cv, c, v = self.network
 
+    # load input layers
+    l_q_in, l_p_in, l_cv_in = self.input_layers
+
     # load network output
-    if self.model == 'bernoulli':
-      z, q_mu, q_logsigma = lasagne.layers.get_output(
+    z, q_mu, q_logsigma = lasagne.layers.get_output(
         [l_q_sample, l_q_mu, l_q_logsigma],
         deterministic=deterministic)
+
+    if self.model == 'bernoulli':
       p_mu = lasagne.layers.get_output(
         l_p_mu,
         {l_p_in: z},
         deterministic=deterministic)
     elif self.model == 'gaussian':
-      z, q_mu, q_logsigma = lasagne.layers.get_output(
-        [l_q_sample, l_q_mu, l_q_logsigma],
-        deterministic=deterministic)
       p_mu, p_logsigma = lasagne.layers.get_output(
         [l_p_mu, l_p_logsigma],
         {l_p_in: z},
