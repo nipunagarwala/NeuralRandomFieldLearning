@@ -1,6 +1,7 @@
 import time
 import pickle
 import numpy as np
+from collections import OrderedDict
 
 import theano
 import theano.tensor as T
@@ -25,15 +26,17 @@ class VAE_REINFORCE(Model):
 
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
-    n_lat = 200 # latent stochastic variabels
-    n_hid = 500 # size of hidden layer in encoder/decoder
-    n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
-    hid_nl = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
-             else T.nnet.softplus
+    n_lat    = 200 # latent stochastic variabels
+    n_hid    = 500 # size of hidden layer in encoder/decoder
+    n_hid_cv = 500 # size of hidden layer in control variate net
+    n_out    = n_dim * n_dim * n_chan # total dimensionality of ouput
+    hid_nl   = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
+               else T.nnet.softplus
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
-                                     input_var=X)
+    l_q_in = lasagne.layers.InputLayer(
+        shape=(None, n_chan, n_dim, n_dim),
+        input_var=X)
     l_q_hid = lasagne.layers.DenseLayer(
         l_q_in, num_units=n_hid,
         nonlinearity=hid_nl)
@@ -75,10 +78,27 @@ class VAE_REINFORCE(Model):
 
       l_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
+    # create control variate network
+    l_cv_in = lasagne.layers.InputLayer(
+        shape=(None, n_chan, n_dim, n_dim),
+        input_var=X)
+    l_cv_hid = lasagne.layers.DenseLayer(
+        l_cv_in,
+        num_units=n_hid_cv,
+        nonlinearity=hid_nl)
+    l_cv = lasagne.layers.DenseLayer(
+        l_cv_hid,
+        num_units=1,
+        nonlinearity=None)
+
+    # create variables for centering signal
+    c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+    v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+
     # store certain input layers for downstream (quick hack)
     self.input_layers = {l_q_in, l_p_in}
 
-    return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q
+    return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v
 
   def _create_components(self, deterministic=False):
     # load network input
@@ -86,7 +106,7 @@ class VAE_REINFORCE(Model):
     x = X.flatten(2)
 
     # load network
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q = self.network
+    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, _, _, _ = self.network
 
     # load input layers
     l_q_in, l_p_in = self.input_layers
@@ -137,7 +157,7 @@ class VAE_REINFORCE(Model):
     from theano.gradient import disconnected_grad as dg
 
     # load networks
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q = self.network
+    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v = self.network
 
     # load params
     if self.model == 'bernoulli':
@@ -145,13 +165,18 @@ class VAE_REINFORCE(Model):
     elif self.model == 'gaussian':
       p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
     q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
+    cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
 
     # load neural net outputs (probabilities have been precomputed)
     log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
+    cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
 
     # compute learning signals
-    l = log_pxz - log_qz_given_x
-    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    l0 = log_pxz - log_qz_given_x - cv
+    l_avg, l_std = l0.mean(), T.maximum(1, l0.std())
+    c_new = 0.8*c + 0.2*l_avg
+    v_new = 0.8*v + 0.2*l_std
+    l = (l0 - c_new) / v_new
 
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
@@ -163,20 +188,47 @@ class VAE_REINFORCE(Model):
     q_target = T.mean(dg(l) * log_qz_given_x)
     q_grads = T.grad(-0.2*elbo, q_params)
 
+    # compute grad of cv net
+    cv_target = T.mean(l0**2)
+    cv_grads = T.grad(cv_target, cv_params)
+
     # combine and clip gradients
     clip_grad = 1
     max_norm = 5
-    grads = p_grads + q_grads
+    grads = p_grads + q_grads + cv_grads
     mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
     cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
 
     return cgrads
 
   def get_params(self):
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, _ = self.network
+    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, _, l_cv, _, _ = self.network
     if self.model == 'bernoulli':
       p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
     elif self.model == 'gaussian':
       p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
     q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
-    return p_params + q_params
+    cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
+    return p_params + q_params + cv_params
+
+  def create_updates(self, grads, params, alpha, opt_alg, opt_params):
+    # call super-class to generate SGD/ADAM updates
+    grad_updates = Model.create_updates(self, grads, params, alpha, opt_alg, opt_params)
+
+    # load neural net outputs (probabilities have been precomputed)
+    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v = self.network
+
+    # load neural net outputs (probabilities have been precomputed)
+    log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
+    cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
+
+    # compute learning signals
+    l = log_pxz - log_qz_given_x - cv
+    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    c_new = 0.8*c + 0.2*l_avg
+    v_new = 0.8*v + 0.2*l_std
+
+    # compute update for centering signal
+    cv_updates = {c : c_new, v : v_new}
+
+    return OrderedDict( grad_updates.items() + cv_updates.items() )
