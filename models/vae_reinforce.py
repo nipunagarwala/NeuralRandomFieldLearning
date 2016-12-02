@@ -1,3 +1,4 @@
+import pdb
 import time
 import pickle
 import numpy as np
@@ -126,8 +127,8 @@ class VAE_REINFORCE(Model):
     l_q_in, l_p_in, l_cv_in = self.input_layers
 
     # load network output
-    z, q_mu, q_logsigma = lasagne.layers.get_output(
-        [l_q_sample, l_q_mu, l_q_logsigma],
+    q_mu, q_logsigma, z = lasagne.layers.get_output(
+        [l_q_mu, l_q_logsigma, l_q_sample],
         deterministic=deterministic)
 
     if self.model == 'bernoulli':
@@ -200,9 +201,12 @@ class VAE_REINFORCE(Model):
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
 
+    elbo = T.mean(log_pxz - log_qz_given_x)
+
     # compute grad wrt q
     q_target = T.mean(dg(l) * log_qz_given_x)
-    q_grads = T.grad(-0.2*q_target, q_params) # 5x slower rate for q
+    # q_grads = T.grad(-0.2*q_target, q_params) # 5x slower rate for q
+    q_grads = T.grad(-0.2*elbo, q_params)
 
     # compute grad of cv net
     cv_target = T.mean(l**2)
