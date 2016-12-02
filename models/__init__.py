@@ -5,7 +5,7 @@ from vae import VAE
 from sbn import SBN
 from adgm import ADGM
 from dadgm import DADGM
-from vae_reinforce2 import VAE_REINFORCE
+from vae_reinforce import VAE_REINFORCE
 
 try:
   from resnet import Resnet
