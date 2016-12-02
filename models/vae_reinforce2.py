@@ -134,11 +134,39 @@ class VAE_REINFORCE(Model):
     return -elbo, -T.mean(log_qz_given_x)
 
   def create_gradients(self, loss, deterministic=False):
-    grads = Model.create_gradients(self, loss, deterministic)
+    from theano.gradient import disconnected_grad as dg
+
+    # load networks
+    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q = self.network
+
+    # load params
+    if self.model == 'bernoulli':
+      p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
+    elif self.model == 'gaussian':
+      p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
+    q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
+
+    # load neural net outputs (probabilities have been precomputed)
+    log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
+
+    # compute learning signals
+    l = log_pxz - log_qz_given_x
+    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+
+    # compute grad wrt p
+    p_grads = T.grad(-log_pxz.mean(), p_params)
+
+    # compute ELBO
+    elbo = T.mean(log_pxz - log_qz_given_x)
+
+    # compute grad wrt q
+    q_target = T.mean(dg(l) * log_qz_given_x)
+    q_grads = T.grad(-0.2*elbo, q_params)
 
     # combine and clip gradients
     clip_grad = 1
     max_norm = 5
+    grads = p_grads + q_grads
     mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
     cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
 
