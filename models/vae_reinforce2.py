@@ -44,11 +44,12 @@ class VAE_REINFORCE(Model):
         l_q_hid, num_units=n_lat,
         nonlinearity=None)
 
-    # create the decoder network
     l_q = GaussianSampleLayer(l_q_mu, l_q_logsigma)
 
+    # create the decoder network
+    l_p_in = lasagne.layers.InputLayer((None, n_lat))
     l_p_hid = lasagne.layers.DenseLayer(
-        l_q, num_units=n_hid,
+        l_p_in, num_units=n_hid,
         nonlinearity=hid_nl,
         W=lasagne.init.GlorotUniform())
     l_p_mu, l_p_logsigma = None, None
@@ -74,14 +75,21 @@ class VAE_REINFORCE(Model):
 
       l_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
+    # store certain input layers for downstream (quick hack)
+    self.input_layers = {l_q_in, l_p_in}
+
     return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q
 
-  def create_objectives(self, deterministic=False):
+  def _create_components(self, deterministic=False):
     # load network input
     X = self.inputs[0]
     x = X.flatten(2)
 
+    # load network
     l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q = self.network
+
+    # load input layers
+    l_q_in, l_p_in = self.input_layers
 
     q_mu, q_logsigma, z = lasagne.layers.get_output(
       [l_q_mu, l_q_logsigma, l_q],
@@ -89,10 +97,12 @@ class VAE_REINFORCE(Model):
 
     # load network output
     if self.model == 'bernoulli':
-      p_mu = lasagne.layers.get_output(l_p_mu, deterministic=deterministic)
+      p_mu = lasagne.layers.get_output(
+        l_p_mu, z,
+        deterministic=deterministic)
     elif self.model == 'gaussian':
       p_mu, p_logsigma = lasagne.layers.get_output(
-        [l_p_mu, l_p_logsigma],
+        [l_p_mu, l_p_logsigma], z,
         deterministic=deterministic)
 
     log_qz_given_x = log_normal2(z, q_mu, q_logsigma).sum(axis=1)
@@ -107,6 +117,15 @@ class VAE_REINFORCE(Model):
       log_px_given_z = log_normal2(x, p_mu, p_logsigma).sum(axis=1)
 
     log_pxz = log_px_given_z + log_pz
+
+    if deterministic == False:
+      self.log_pxz = log_pxz
+      self.log_qz_given_x = log_qz_given_x
+
+    return log_pxz.flatten(), log_qz_given_x.flatten()
+
+  def create_objectives(self, deterministic=False):
+    log_pxz, log_qz_given_x = self._create_components(deterministic=deterministic)
 
     # compute the evidence lower bound
     elbo = T.mean(log_pxz - log_qz_given_x)
