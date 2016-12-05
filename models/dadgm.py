@@ -242,10 +242,10 @@ class DADGM(Model):
 
     # compute learning signals
     l0 = log_px_given_z + log_pz - log_qz_given_ax - cv
-    l_avg, l_std = l0.mean(), T.maximum(1, l0.std())
+    l_avg, l_var = l.mean(), l.var()
     c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_std
-    l = (l0 - c_new) / v_new
+    v_new = 0.8*v + 0.2*l_var
+    l = (l - c_new) / T.maximum(1, np.sqrt(v_new))
 
     # compute grad wrt p
     p_grads = T.grad(-log_paxz.mean(), p_params)
@@ -311,9 +311,9 @@ class DADGM(Model):
 
     # compute learning signals
     l = log_px_given_z + log_pz - log_qz_given_ax - cv
-    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    l_avg, l_var = l.mean(), l.var()
     c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_std
+    v_new = 0.8*v + 0.2*l_var
 
     # compute update for centering signal
     cv_updates = {c : c_new, v : v_new}

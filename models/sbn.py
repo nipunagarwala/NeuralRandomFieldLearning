@@ -15,7 +15,11 @@ from distributions import log_bernoulli
 # ----------------------------------------------------------------------------
 
 class SBN(Model):
-  """Sigmoid Belief Network trained using Neural Variational Inference"""
+  """Sigmoid Belief Network trained using Neural Variational Inference
+     Epoch 200 of 200 took 26.052s (192 minibatches)
+        training loss/acc:        125.989901  107.652437
+        validation loss/acc:      126.220432  108.006230
+  """
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
               opt_params={'lr' : 1e-3, 'b1': 0.9, 'b2': 0.99}):
 
@@ -127,10 +131,10 @@ class SBN(Model):
 
     # compute learning signals
     l = log_pxz - log_qz_given_x - cv
-    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    l_avg, l_var = l.mean(), l.var()
     c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_std
-    l = (l - c_new) / v_new
+    v_new = 0.8*v + 0.2*l_var
+    l = (l - c_new) / T.maximum(1, np.sqrt(v_new))
 
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
@@ -172,9 +176,9 @@ class SBN(Model):
 
     # compute learning signals
     l = log_pxz - log_qz_given_x - cv
-    l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    l_avg, l_var = l.mean(), l.var()
     c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_std
+    v_new = 0.8*v + 0.2*l_var
 
     # compute update for centering signal
     cv_updates = {c : c_new, v : v_new}
