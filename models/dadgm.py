@@ -216,7 +216,7 @@ class DADGM(Model):
     elbo = T.mean(log_paxz - log_qza_given_x)
 
     # we don't use a spearate accuracy metric right now
-    return -elbo, T.mean(log_paxz)
+    return -elbo, -T.mean(log_paxz)
 
   def create_gradients(self, loss, deterministic=False):
     # load networks

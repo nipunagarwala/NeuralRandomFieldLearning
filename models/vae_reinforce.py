@@ -1,7 +1,6 @@
 import time
 import pickle
 import numpy as np
-from collections import OrderedDict
 
 import theano
 import theano.tensor as T
@@ -27,42 +26,39 @@ class VAE_REINFORCE(Model):
 
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
-    n_lat    = 200 # latent stochastic variabels
-    n_hid    = 500 # size of hidden layer in encoder/decoder
-    n_hid_cv = 500 # size of hidden layer in control variate net
-    n_out    = n_dim * n_dim * n_chan # total dimensionality of ouput
-    hid_nl   = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
-               else T.nnet.softplus
+    n_lat = 200 # latent stochastic variabels
+    n_hid = 500 # size of hidden layer in encoder/decoder
+    n_out = n_dim * n_dim * n_chan # total dimensionality of output
+    hid_nl = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
+             else T.nnet.softplus
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(
-        shape=(None, n_chan, n_dim, n_dim),
-        input_var=X)
+    l_q_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
+                                       input_var=X)
     l_q_hid = lasagne.layers.DenseLayer(
         l_q_in, num_units=n_hid,
-        nonlinearity=hid_nl)
+        nonlinearity=hid_nl, name='q_hid')
     l_q_mu = lasagne.layers.DenseLayer(
         l_q_hid, num_units=n_lat,
-        nonlinearity=None)
+        nonlinearity=None, name='q_mu')
     l_q_logsigma = lasagne.layers.DenseLayer(
         l_q_hid, num_units=n_lat,
-        nonlinearity=None)
-
-    l_q = GaussianSampleLayer(l_q_mu, l_q_logsigma)
+        nonlinearity=None, name='q_logsigma')
 
     # create the decoder network
-    l_p_in = lasagne.layers.InputLayer((None, n_lat))
+    l_p_z = GaussianSampleLayer(l_q_mu, l_q_logsigma)
+
     l_p_hid = lasagne.layers.DenseLayer(
-        l_p_in, num_units=n_hid,
+        l_p_z, num_units=n_hid,
         nonlinearity=hid_nl,
-        W=lasagne.init.GlorotUniform())
+        W=lasagne.init.GlorotUniform(), name='p_hid')
     l_p_mu, l_p_logsigma = None, None
 
     if self.model == 'bernoulli':
-      l_p_mu = lasagne.layers.DenseLayer(l_p_hid, num_units=n_out,
+      l_sample = lasagne.layers.DenseLayer(l_p_hid, num_units=n_out,
           nonlinearity = lasagne.nonlinearities.sigmoid,
           W=lasagne.init.GlorotUniform(),
-          b=lasagne.init.Constant(0.))
+          b=lasagne.init.Constant(0.), name='p_sigma')
 
     elif self.model == 'gaussian':
       l_p_mu = lasagne.layers.DenseLayer(
@@ -79,156 +75,126 @@ class VAE_REINFORCE(Model):
 
       l_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
-    # create control variate network
-    l_cv_in = lasagne.layers.InputLayer(
-        shape=(None, n_chan, n_dim, n_dim),
-        input_var=X)
-    l_cv_hid = lasagne.layers.DenseLayer(
-        l_cv_in,
-        num_units=n_hid_cv,
-        nonlinearity=hid_nl)
-    l_cv = lasagne.layers.DenseLayer(
-        l_cv_hid,
-        num_units=1,
-        nonlinearity=None)
+    return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_sample, l_p_z
 
-    # create variables for centering signal
-    c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
-    v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+  def create_objectives(self, deterministic=False):
+    return self.create_objectives_elbo(deterministic)
 
-    # store certain input layers for downstream (quick hack)
-    self.input_layers = {l_q_in, l_p_in}
+  def create_objectives_analytic(self, deterministic=False):
+    """ELBO objective with the analytic expectation trick"""
+    # load network input
+    X = self.inputs[0]
 
-    return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v
+    # load network output
+    if self.model == 'bernoulli':
+      q_mu, q_logsigma, sample, _ \
+          = lasagne.layers.get_output(self.network[2:], deterministic=deterministic)
+    elif self.model == 'gaussian':
+      p_mu, p_logsigma, q_mu, q_logsigma, _, _ \
+          = lasagne.layers.get_output(self.network, deterministic=deterministic)
 
-  def _create_components(self, deterministic=False):
+    # first term of the ELBO: kl-divergence (using the closed form expression)
+    kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu)
+                         - T.exp(2 * q_logsigma), axis=1).mean()
+
+    # second term: log-likelihood of the data under the model
+    if self.model == 'bernoulli':
+      logpxz = -lasagne.objectives.binary_crossentropy(sample, X.flatten(2)).sum(axis=1).mean()
+    elif self.model == 'gaussian':
+      def log_lik(x, mu, log_sig):
+          return T.sum(-(np.float32(0.5 * np.log(2 * np.pi)) + log_sig)
+                        - 0.5 * T.sqr(x - mu) / T.exp(2 * log_sig), axis=1)
+      logpxz = log_lik(X.flatten(2), p_mu, p_logsigma).mean()
+
+    loss = -1 * (logpxz + kl_div)
+
+    # we don't use the spearate accuracy metric right now
+    return loss, -kl_div
+
+  def create_objectives_elbo(self, deterministic=False):
+    """ ELBO objective without the analytic expectation trick """
     # load network input
     X = self.inputs[0]
     x = X.flatten(2)
 
-    # load network
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, _, _, _ = self.network
-
-    # load input layers
-    l_q_in, l_p_in = self.input_layers
-
-    q_mu, q_logsigma, z = lasagne.layers.get_output(
-      [l_q_mu, l_q_logsigma, l_q],
-      deterministic=deterministic)
-
     # load network output
     if self.model == 'bernoulli':
-      p_mu = lasagne.layers.get_output(
-        l_p_mu, z,
-        deterministic=deterministic)
+      q_mu, q_logsigma, p_mu, z \
+           = lasagne.layers.get_output(self.network[2:], deterministic=deterministic)
     elif self.model == 'gaussian':
-      p_mu, p_logsigma = lasagne.layers.get_output(
-        [l_p_mu, l_p_logsigma], z,
-        deterministic=deterministic)
+      raise NotImplementedError()
 
+    # entropy term
     log_qz_given_x = log_normal2(dg(z), q_mu, q_logsigma).sum(axis=1)
 
+    # expected p(x,z) term
     z_prior_sigma = T.cast(T.ones_like(q_logsigma), dtype=theano.config.floatX)
     z_prior_mu = T.cast(T.zeros_like(q_mu), dtype=theano.config.floatX)
     log_pz = log_normal(z, z_prior_mu,  z_prior_sigma).sum(axis=1)
+    log_px_given_z = log_bernoulli(x, p_mu).sum(axis=1)
+    log_pxz = log_pz + log_px_given_z
 
-    if self.model == 'bernoulli':
-      log_px_given_z = log_bernoulli(x, p_mu).sum(axis=1)
-    elif self.model == 'gaussian':
-      log_px_given_z = log_normal2(x, p_mu, p_logsigma).sum(axis=1)
+    self.log_pxz = log_pxz
+    self.log_qz_given_x = log_qz_given_x
 
-    log_pxz = log_px_given_z + log_pz
-
-    if deterministic == False:
-      self.log_pxz = log_pxz
-      self.log_qz_given_x = log_qz_given_x
-
-    return log_pxz.flatten(), log_qz_given_x.flatten()
-
-  def create_objectives(self, deterministic=False):
-    log_pxz, log_qz_given_x = self._create_components(deterministic=deterministic)
-
-    # compute the evidence lower bound
-    elbo = T.mean(log_pxz - log_qz_given_x)
+    elbo = (log_pxz - log_qz_given_x).mean()
 
     # we don't use the spearate accuracy metric right now
-    return -elbo, -T.mean(log_qz_given_x)
+    return -elbo, -log_qz_given_x.mean()
 
   def create_gradients(self, loss, deterministic=False):
-    # load networks
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v = self.network
-
     # load params
-    if self.model == 'bernoulli':
-      p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
-    elif self.model == 'gaussian':
-      p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
-    q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
-    cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
+    p_params, q_params = self._get_net_params()
 
-    # load neural net outputs (probabilities have been precomputed)
-    log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
-    cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
+    self.log_pxz = log_pxz
+    self.log_qz_given_x = log_qz_given_x
 
     # compute learning signals
-    l0 = log_pxz - log_qz_given_x - cv
-    l_avg, l_var = l0.mean(), l0.var()
-    c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_var
-    l = (l0 - c_new) / T.maximum(1, T.sqrt(v_new))
+    l = log_pxz - log_qz_given_x
+    # l_avg, l_std = l.mean(), T.maximum(1, l.std())
+    # c_new = 0.8*c + 0.2*l_avg
+    # v_new = 0.8*v + 0.2*l_std
+    # l = (l - c_new) / v_new
 
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
 
-    # compute ELBO
-    elbo = T.mean(log_pxz - log_qz_given_x)
-
     # compute grad wrt q
+    # q_target = T.mean(dg(l) * log_qz_given_x)
+    # q_grads = T.grad(-0.2*q_target, q_params) # 5x slower rate for q
+    log_qz_given_x = log_normal2(dg(z), q_mu, q_logsigma).sum(axis=1)
     q_target = T.mean(dg(l) * log_qz_given_x)
-    # q_grads = T.grad(-0.2*q_target, q_params)
-    q_grads = T.grad(-0.2*elbo, q_params)
+    q_grads = T.grad(-0.2*q_target, q_params) # 5x slower rate for q
+    # q_grads = T.grad(-l.mean(), q_params) # 5x slower rate for q
 
-    # compute grad of cv net
-    cv_target = T.mean(l0**2)
-    cv_grads = T.grad(cv_target, cv_params)
+    # # compute grad of cv net
+    # cv_target = T.mean(l**2)
+    # cv_grads = T.grad(cv_target, cv_params)
 
     # combine and clip gradients
     clip_grad = 1
     max_norm = 5
-    grads = p_grads + q_grads + cv_grads
+    grads = p_grads + q_grads
     mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
     cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
 
     return cgrads
 
-  def get_params(self):
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, _, l_cv, _, _ = self.network
+  def _get_net_params(self):
+    # load network output
     if self.model == 'bernoulli':
-      p_params = lasagne.layers.get_all_params([l_p_mu], trainable=True)
+      _, _, l_p_mu, _ = self.network[2:]
     elif self.model == 'gaussian':
-      p_params = lasagne.layers.get_all_params([l_p_mu, l_p_logsigma], trainable=True)
-    q_params = lasagne.layers.get_all_params([l_q_mu, l_q_logsigma], trainable=True)
-    cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
-    return p_params + q_params + cv_params
+      raise NotImplementedError()
 
-  def create_updates(self, grads, params, alpha, opt_alg, opt_params):
-    # call super-class to generate SGD/ADAM updates
-    grad_updates = Model.create_updates(self, grads, params, alpha, opt_alg, opt_params)
+    # load params
+    params  = lasagne.layers.get_all_params(l_p_mu, trainable=True)
 
-    # load neural net outputs (probabilities have been precomputed)
-    l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v = self.network
+    p_params = [p for p in params if p.name.startswith('p_')]
+    q_params = [p for p in params if p.name.startswith('q_')]
 
-    # load neural net outputs (probabilities have been precomputed)
-    log_pxz, log_qz_given_x = self.log_pxz, self.log_qz_given_x
-    cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
+    return p_params, q_params
 
-    # compute learning signals
-    l = log_pxz - log_qz_given_x - cv
-    l_avg, l_var = l.mean(), l.var()
-    c_new = 0.8*c + 0.2*l_avg
-    v_new = 0.8*v + 0.2*l_var
-
-    # compute update for centering signal
-    cv_updates = {c : c_new, v : v_new}
-
-    return OrderedDict( grad_updates.items() + cv_updates.items() )
+  def get_params(self):
+    p_params, q_params = self._get_net_params()
+    return p_params + q_params
