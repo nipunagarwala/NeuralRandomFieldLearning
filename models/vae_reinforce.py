@@ -5,6 +5,7 @@ from collections import OrderedDict
 
 import theano
 import theano.tensor as T
+from theano.gradient import disconnected_grad as dg
 import lasagne
 
 from model import Model
@@ -125,7 +126,7 @@ class VAE_REINFORCE(Model):
         [l_p_mu, l_p_logsigma], z,
         deterministic=deterministic)
 
-    log_qz_given_x = log_normal2(z, q_mu, q_logsigma).sum(axis=1)
+    log_qz_given_x = log_normal2(dg(z), q_mu, q_logsigma).sum(axis=1)
 
     z_prior_sigma = T.cast(T.ones_like(q_logsigma), dtype=theano.config.floatX)
     z_prior_mu = T.cast(T.zeros_like(q_mu), dtype=theano.config.floatX)
@@ -154,8 +155,6 @@ class VAE_REINFORCE(Model):
     return -elbo, -T.mean(log_qz_given_x)
 
   def create_gradients(self, loss, deterministic=False):
-    from theano.gradient import disconnected_grad as dg
-
     # load networks
     l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q, l_cv, c, v = self.network
 
@@ -173,10 +172,10 @@ class VAE_REINFORCE(Model):
 
     # compute learning signals
     l0 = log_pxz - log_qz_given_x - cv
-    l_avg, l_var = l.mean(), l.var()
+    l_avg, l_var = l0.mean(), l0.var()
     c_new = 0.8*c + 0.2*l_avg
     v_new = 0.8*v + 0.2*l_var
-    l = (l - c_new) / T.maximum(1, np.sqrt(v_new))
+    l = (l0 - c_new) / T.maximum(1, T.sqrt(v_new))
 
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)

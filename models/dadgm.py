@@ -5,6 +5,7 @@ from collections import OrderedDict
 
 import theano
 import theano.tensor as T
+from theano.gradient import disconnected_grad as dg
 import lasagne
 
 from model import Model
@@ -171,8 +172,8 @@ class DADGM(Model):
                                                        deterministic=deterministic)
 
     # entropy term
-    log_qa_given_x  = log_normal2(a, qa_mu, qa_logsigma).sum(axis=1)
-    log_qz_given_ax = log_bernoulli(z, qz_mu).sum(axis=1)
+    log_qa_given_x  = log_normal2(dg(a), qa_mu, qa_logsigma).sum(axis=1)
+    log_qz_given_ax = log_bernoulli(dg(z), qz_mu).sum(axis=1)
     # log_qz_given_ax = log_normal2(z, qz_mu, qz_logsigma).sum(axis=1)
     log_qza_given_x = log_qz_given_ax + log_qa_given_x
 
@@ -218,8 +219,6 @@ class DADGM(Model):
     return -elbo, T.mean(log_paxz)
 
   def create_gradients(self, loss, deterministic=False):
-    from theano.gradient import disconnected_grad as dg
-
     # load networks
     l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
     l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
@@ -242,10 +241,10 @@ class DADGM(Model):
 
     # compute learning signals
     l0 = log_px_given_z + log_pz - log_qz_given_ax - cv
-    l_avg, l_var = l.mean(), l.var()
+    l_avg, l_var = l0.mean(), l0.var()
     c_new = 0.8*c + 0.2*l_avg
     v_new = 0.8*v + 0.2*l_var
-    l = (l - c_new) / T.maximum(1, np.sqrt(v_new))
+    l = (l0 - c_new) / T.maximum(1, T.sqrt(v_new))
 
     # compute grad wrt p
     p_grads = T.grad(-log_paxz.mean(), p_params)

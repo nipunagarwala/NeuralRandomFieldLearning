@@ -5,6 +5,7 @@ from collections import OrderedDict
 
 import theano
 import theano.tensor as T
+from theano.gradient import disconnected_grad as dg
 import lasagne
 
 from model import Model
@@ -89,7 +90,7 @@ class SBN(Model):
     p_mu = lasagne.layers.get_output(l_p_mu, z, deterministic=deterministic)
 
     # entropy term
-    log_qz_given_x = log_bernoulli(z, q_mu).sum(axis=1)
+    log_qz_given_x = log_bernoulli(dg(z), q_mu).sum(axis=1)
 
     # expected p(x,z) term
     z_prior = T.ones_like(z)*np.float32(0.5)
@@ -134,7 +135,7 @@ class SBN(Model):
     l_avg, l_var = l.mean(), l.var()
     c_new = 0.8*c + 0.2*l_avg
     v_new = 0.8*v + 0.2*l_var
-    l = (l - c_new) / T.maximum(1, np.sqrt(v_new))
+    l = (l - c_new) / T.maximum(1, T.sqrt(v_new))
 
     # compute grad wrt p
     p_grads = T.grad(-log_pxz.mean(), p_params)
