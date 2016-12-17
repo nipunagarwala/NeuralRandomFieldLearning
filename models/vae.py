@@ -24,7 +24,7 @@ class VAE(Model):
 
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
-    n_lat = 200 # latent stochastic variabels
+    n_lat = 200 # latent stochastic variables
     n_hid = 500 # size of hidden layer in encoder/decoder
     n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
     hid_nl = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
