@@ -122,8 +122,8 @@ class DADGM(Model):
         nonlinearity=None)
 
     # create variables for centering signal
-    c = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
-    v = theano.shared(np.zeros((1,1), dtype=np.float32), broadcastable=(True,True))
+    c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+    v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
 
     # store certain input layers for downstream (quick hack)
     self.input_layers = (l_qa_in, l_qz_in, l_px_in)

@@ -1,1 +1,3 @@
-from sampling import GaussianSampleLayer, BernoulliSampleLayer
+from sampling import (GaussianSampleLayer,
+                      BernoulliSampleLayer,
+                      GumbelSoftmaxSampleLayer)

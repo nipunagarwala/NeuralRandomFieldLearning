@@ -1,3 +1,4 @@
+import pdb
 import time
 import pickle
 from collections import OrderedDict
@@ -44,7 +45,7 @@ class Model(object):
     # create gradients
     grads      = self.create_gradients(loss, deterministic=False)
     grads_test = self.create_gradients(loss_test, deterministic=True)
-    
+
     # create updates
     alpha = T.scalar(dtype=theano.config.floatX) # adjustable learning rate
     updates = self.create_updates(grads, params, alpha, opt_alg, opt_params)
@@ -54,7 +55,7 @@ class Model(object):
                                  givens={X : train_set_x[idx1:idx2], Y : train_set_y_int[idx1:idx2]},
                                  on_unused_input='warn')
     self.loss = theano.function([X, Y], [loss, acc], on_unused_input='warn')
-    
+
     # # TODO: implement a create_predictions method
     # self.predict = theano.function([X], P)
 
@@ -111,7 +112,7 @@ class Model(object):
       grad_updates = lasagne.updates.sgd(scaled_grads, params, learning_rate=lr)
     elif opt_alg == 'adam':
       b1, b2 = opt_params.get('b1', 0.9), opt_params.get('b2', 0.999)
-      grad_updates = lasagne.updates.adam(scaled_grads, params, learning_rate=lr, 
+      grad_updates = lasagne.updates.adam(scaled_grads, params, learning_rate=lr,
                                           beta1=b1, beta2=b2)
     else:
       grad_updates = OrderedDict()
@@ -141,7 +142,7 @@ class Model(object):
 
           # collect metrics
           train_batches += 1
-          train_err += err 
+          train_err += err
           train_acc += acc
           if train_batches % 100 == 0:
             n_total = epoch * n_data + n_batch * train_batches

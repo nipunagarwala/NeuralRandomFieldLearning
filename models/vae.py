@@ -26,7 +26,7 @@ class VAE(Model):
     # params
     n_lat = 200 # latent stochastic variables
     n_hid = 500 # size of hidden layer in encoder/decoder
-    n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
+    n_out = n_dim * n_dim * n_chan # total dimensionality of output
     hid_nl = lasagne.nonlinearities.tanh if self.model == 'bernoulli' \
              else T.nnet.softplus
 

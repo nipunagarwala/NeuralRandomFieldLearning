@@ -6,7 +6,7 @@ NAME=experiment
 
 LOGFOLDER=log
 DATASET=mnist
-MODEL=vae_reinforce
+MODEL=gsm
 ALG=adam
 
 LR=3e-4
