@@ -14,6 +14,10 @@ from model import Model
 class GSM(Model):
   """ Gumbel Softmax w/ categorical latent variables
       https://arxiv.org/pdf/1611.01144v2.pdf
+
+      Epoch 61 of 100 took 26.052s (192 minibatches)
+        training loss/acc:    95.308443 3.337155
+        validation loss/acc:    95.018373 3.338176
   """
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
               opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}):

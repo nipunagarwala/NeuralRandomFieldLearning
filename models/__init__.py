@@ -7,6 +7,7 @@ from adgm import ADGM
 from dadgm import DADGM
 from vae_reinforce import VAE_REINFORCE
 from gsm import GSM
+from rbm import RBM
 
 try:
   from resnet import Resnet
