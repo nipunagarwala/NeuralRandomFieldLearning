@@ -75,7 +75,7 @@ def train(args):
   print 'dataset loaded.'
 
   # set up optimization params
-  p = { 'lr' : args.lr, 'b1': args.b1, 'b2': args.b2 }
+  p = { 'lr' : args.lr, 'b1': args.b1, 'b2': args.b2, 'nb': args.n_batch }
 
   # create model
   if args.model == 'softmax':

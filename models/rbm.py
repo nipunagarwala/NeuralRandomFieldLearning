@@ -1,5 +1,5 @@
 import pdb
-import time
+import time, timeit
 import pickle
 import numpy as np
 from collections import OrderedDict
@@ -11,85 +11,6 @@ from theano.gradient import disconnected_grad as dg
 
 from model import Model
 from helpers import *
-
-import os, gzip, timeit
-
-
-def load_data(dataset):
-  '''
-  Loads the dataset
-  :type dataset: string
-  :param dataset: the path to the dataset (here MNIST)
-  '''
-
-  # Download the MNIST dataset if it is not present
-  data_dir, data_file = os.path.split(dataset)
-  if data_dir == "" and not os.path.isfile(dataset):
-    # Check if dataset is in the data directory.
-    new_path = os.path.join(
-      os.path.split(__file__)[0],
-      "..",
-      "data",
-      dataset
-    )
-    if os.path.isfile(new_path) or data_file == 'mnist.pkl.gz':
-      dataset = new_path
-
-  if (not os.path.isfile(dataset)) and data_file == 'mnist.pkl.gz':
-    from six.moves import urllib
-    origin = (
-      'http://www.iro.umontreal.ca/~lisa/deep/data/mnist/mnist.pkl.gz'
-    )
-    print('Downloading data from %s' % origin)
-    urllib.request.urlretrieve(origin, dataset)
-
-  print('... loading data')
-
-  # Load the dataset
-  with gzip.open(dataset, 'rb') as f:
-    try:
-      train_set, valid_set, test_set = pickle.load(f, encoding='latin1')
-    except:
-      train_set, valid_set, test_set = pickle.load(f)
-  # train_set, valid_set, test_set format: tuple(input, target)
-  # input is a np.ndarray of 2 dimensions (a matrix)
-  # where each row corresponds to an example. target is a
-  # np.ndarray of 1 dimension (vector) that has the same length as
-  # the number of rows in the input. It should give the target
-  # to the example with the same index in the input.
-
-  def shared_dataset(data_xy, borrow=True):
-    ''' Function that loads the dataset into shared variables
-
-    The reason we store our dataset in shared variables is to allow
-    Theano to copy it into the GPU memory (when code is run on GPU).
-    Since copying data into the GPU is slow, copying a minibatch everytime
-    is needed (the default behaviour if the data is not in a shared
-    variable) would lead to a large decrease in performance.
-    '''
-    data_x, data_y = data_xy
-    shared_x = theano.shared(np.asarray(data_x,
-                                        dtype=theano.config.floatX),
-                             borrow=borrow)
-    shared_y = theano.shared(np.asarray(data_y,
-                                        dtype=theano.config.floatX),
-                             borrow=borrow)
-    # When storing data on the GPU it has to be stored as floats
-    # therefore we will store the labels as ``floatX`` as well
-    # (``shared_y`` does exactly that). But during our computations
-    # we need them as ints (we use labels as index, and if they are
-    # floats it doesn't make sense) therefore instead of returning
-    # ``shared_y`` we will have to cast it to int. This little hack
-    # lets ous get around this issue
-    return shared_x, T.cast(shared_y, 'int32')
-
-  test_set_x, test_set_y = shared_dataset(test_set)
-  valid_set_x, valid_set_y = shared_dataset(valid_set)
-  train_set_x, train_set_y = shared_dataset(train_set)
-
-  rval = [(train_set_x, train_set_y), (valid_set_x, valid_set_y),
-          (test_set_x, test_set_y)]
-  return rval
 
 
 class RBM(Model):
@@ -108,23 +29,30 @@ class RBM(Model):
     self.theano_rng = RandomStreams(self.numpy_rng.randint(2 ** 30))
     self.create_model(n_dim, n_out, n_chan)
 
-    datasets = load_data('mnist.pkl.gz')
     lr = opt_params.get('lr')
-    batch_size = 20
+    n_batch = opt_params.get('nb')
 
-    train_set_x, train_set_y = datasets[0]
-    test_set_x, test_set_y = datasets[2]
+    # create shared objects for x and y
+    train_set_x = theano.shared(
+      np.empty((n_superbatch, n_chan*n_dim*n_dim), dtype=theano.config.floatX),
+      borrow=False
+    )
 
-    # compute number of minibatches for training, validation and testing
-    self.n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
+    train_set_y = theano.shared(
+      np.empty((n_superbatch,), dtype=theano.config.floatX),
+      borrow=False
+    )
 
     # allocate symbolic variables for the data
     index = T.lscalar()    # index to a [mini]batch
     x = T.matrix('x')
 
-    persistent_chain = theano.shared(np.zeros((batch_size, self.n_hidden),
-                                               dtype=theano.config.floatX),
-                                     borrow=True)
+    # initialize storage for the persistent chain (state = hidden
+    # layer of chain)
+    persistent_chain = theano.shared(
+      np.zeros((n_batch, self.n_hidden), dtype=theano.config.floatX),
+      borrow=True
+    )
 
     # get the cost and the gradient corresponding to one step of CD-15
     cost, updates = self.get_cost_updates(x, lr=lr, persistent=persistent_chain)
@@ -133,15 +61,20 @@ class RBM(Model):
       [index],
       cost,
       updates=updates,
-      givens={ x: train_set_x[index * batch_size: (index + 1) * batch_size] },
+      givens={ x: train_set_x[index * n_batch: (index + 1) * n_batch] },
       name='train_rbm',
       on_unused_input='warn',
     )
 
+    self.n_batch = n_batch
+    self.loss = theano.function([x], cost,  on_unused_input='warn')
+    self.train_set_x = train_set_x
+    self.train_set_y = train_set_y
+
   def create_model(self, n_dim, n_out, n_chan=1):
     n_visible = n_chan*n_dim*n_dim  # size of visible layer
     n_hidden  = 500  # size of hidden layer
-    k_steps = 15  # number of steps during CD/PCD
+    k_steps   = 15  # number of steps during CD/PCD
 
     # W is initialized with `initial_W` which is uniformely
     # sampled from -4*sqrt(6./(n_visible+n_hidden)) and
@@ -340,10 +273,7 @@ class RBM(Model):
     # constructs the update dictionary
     for gparam, param in zip(gparams, self.params):
       # make sure that the learning rate is of the right dtype
-      updates[param] = param - gparam * T.cast(
-        lr,
-        dtype=theano.config.floatX
-      )
+      updates[param] = param - gparam * T.cast(lr, dtype=theano.config.floatX)
 
     if persistent:
       # Note that this works only if persistent is a shared variable
@@ -425,16 +355,25 @@ class RBM(Model):
 
   def fit(self, X_train, Y_train, X_val, Y_val, n_epoch=10, n_batch=100, logname='run'):
     ''' Train the model'''
+    X_train = X_train.reshape(-1, np.prod(X_train.shape[1:]))
+    X_val = X_val.reshape(-1, np.prod(X_val.shape[1:]))
+
     start_time = timeit.default_timer()
+
+    # compute number of minibatches for training, validation and testing
+    n_train_batches = X_train.shape[0] // n_batch
+    self.load_data(X_train, Y_train, dest='train')
 
     # go through training epochs
     for epoch in range(n_epoch):
       # go through the training set
       mean_cost = []
-      for batch_index in range(self.n_train_batches):
+      for batch_index in range(n_train_batches):
           mean_cost += [self.train(batch_index)]
 
-      print('Training epoch %d, cost is ' % epoch, np.mean(mean_cost))
+      print "Epoch {} of {} took {:.3f}s ({} minibatches)".format(
+        epoch + 1, n_epoch, time.time() - start_time, n_train_batches)
+      print "  training loss/acc:\t\t{:.6f}\t{}".format(np.mean(mean_cost), None)
 
     end_time = timeit.default_timer()
     pretraining_time = (end_time - start_time)
