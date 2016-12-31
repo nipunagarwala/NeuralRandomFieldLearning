@@ -7,16 +7,6 @@ from theano.gradient import disconnected_grad as dg
 
 # ----------------------------------------------------------------------------
 
-def _sample_gumbel(shape, eps=1e-20):
-    """ Sample from Gumbel(0, 1) """
-    U = srng.uniform(size=shape, low=0, high=1)
-    return -T.log(T.log(U + eps) + eps)
-
-def _sample_gumbel_softmax(logits, temperature):
-    """ Sample from Gumbel-Softmax distribution """
-    y = logits + _sample_gumbel(T.shape(logits))
-    return T.nnet.softmax(y / temperature)
-
 class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
     def __init__(self, mean,
                  temperature=1, hard=False,
@@ -35,11 +25,13 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
             be a probabilitiy distribution that sums to 1 across classes
         """
         super(GumbelSoftmaxSampleLayer, self).__init__(mean, **kwargs)
-        self._srng = RandomStreams(seed)
+
+        # save sample parameters
+        self._srng       = RandomStreams(seed)
         self.temperature = temperature
-        self.hard = hard
-        self.n_class = n_class
-        self.n_cat = n_cat
+        self.hard        = hard
+        self.n_class     = n_class
+        self.n_cat       = n_cat
 
     def seed(self, seed=lasagne.random.get_rng().randint(1, 2147462579)):
         self._srng.seed(seed)
@@ -47,16 +39,26 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
     def get_output_shape_for(self, input_shape):
         return input_shape
 
+    def _sample_gumbel(self, shape, eps=1e-20):
+        """ Sample from Gumbel(0, 1) """
+        U = self._srng.uniform(size=shape, low=0, high=1)
+        return -T.log(-T.log(U + eps) + eps)
+
+    def _sample_gumbel_softmax(self, logits, temperature):
+        """ Sample from Gumbel-Softmax distribution """
+        y = logits + self._sample_gumbel(T.shape(logits))
+        return T.nnet.softmax(y / temperature)
+
     def get_output_for(self, inputs, deterministic=False, **kwargs):
         inputs = T.reshape(inputs, (-1, self.n_class))
-        y = _sample_gumbel_softmax(inputs, self.temperature)
+        y = self._sample_gumbel_softmax(inputs, self.temperature)
         if self.hard:
             k = T.shape(inputs)[-1]
             y_hard = T.cast(T.equal(y, T.argmax(y, axis=1, keep_dims=True)), y.dtype)
             y = dg(y_hard - y) + y
 
         y = T.reshape(y, (-1, self.n_cat, self.n_class))
-        return T.flatten(y)
+        return y
 
 class GaussianSampleLayer(lasagne.layers.MergeLayer):
     def __init__(self, mu, logsigma, rng=None, **kwargs):
