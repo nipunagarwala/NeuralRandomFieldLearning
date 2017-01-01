@@ -16,6 +16,11 @@ from model import Model
 class SBN_GSM(Model):
   """ Sigmoid Belief Network trained using Gumbel Softmax Reparametrization
       https://arxiv.org/pdf/1611.01144v2.pdf
+      https://arxiv.org/pdf/1402.0030.pdf
+
+      Epoch 200 of 200 took 21.107s (192 minibatches)
+        training loss/acc:		  152.946276	-2.190767
+        validation loss/acc:		151.944762	-2.191066
   """
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
               opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}):
