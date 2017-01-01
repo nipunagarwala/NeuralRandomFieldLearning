@@ -3,14 +3,13 @@ import theano.tensor as T
 import lasagne
 
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
-from theano.gradient import disconnected_grad as dg
+from theano.gradient import consider_constant
 
 # ----------------------------------------------------------------------------
 
 class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
     def __init__(self, mean,
                  temperature=1, hard=False,
-                 n_class=1, n_cat=1,
                  seed=lasagne.random.get_rng().randint(1, 2147462579),
                  **kwargs):
         """
@@ -30,8 +29,6 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
         self._srng       = RandomStreams(seed)
         self.temperature = temperature
         self.hard        = hard
-        self.n_class     = n_class
-        self.n_cat       = n_cat
 
     def seed(self, seed=lasagne.random.get_rng().randint(1, 2147462579)):
         self._srng.seed(seed)
@@ -50,14 +47,11 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
         return T.nnet.softmax(y / temperature)
 
     def get_output_for(self, inputs, deterministic=False, **kwargs):
-        inputs = T.reshape(inputs, (-1, self.n_class))
         y = self._sample_gumbel_softmax(inputs, self.temperature)
         if self.hard:
             k = T.shape(inputs)[-1]
             y_hard = T.cast(T.equal(y, T.argmax(y, axis=1, keep_dims=True)), y.dtype)
-            y = dg(y_hard - y) + y
-
-        y = T.reshape(y, (-1, self.n_cat, self.n_class))
+            y = consider_constant(y_hard - y) + y
         return y
 
 class GaussianSampleLayer(lasagne.layers.MergeLayer):

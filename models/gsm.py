@@ -12,7 +12,7 @@ from layers import GumbelSoftmaxSampleLayer
 from distributions import log_bernoulli
 from model import Model
 
-theano.config.optimizer = 'None'
+
 
 class GSM(Model):
   """
@@ -40,12 +40,13 @@ class GSM(Model):
       l_q_hid1, num_units=256, nonlinearity=hid_nl)
     l_q_mu = lasagne.layers.DenseLayer(
       l_q_hid2, num_units=n_class*n_cat, nonlinearity=None)
+    l_q_mu = lasagne.layers.ReshapeLayer(l_q_mu, (-1, n_class))
 
     # sample from Gumble-Softmax posterior
     tau = theano.shared(1.0, name="temperature")
     l_q_sample = GumbelSoftmaxSampleLayer(
-      l_q_mu, temperature=tau, hard=False,
-      n_class=n_class, n_cat=n_cat)
+      l_q_mu, temperature=tau, hard=False)
+    l_q_sample = lasagne.layers.ReshapeLayer(l_q_sample, (-1, n_cat, n_class))
 
     # create the decoder network
     l_p_in = lasagne.layers.InputLayer((None, n_cat*n_class))
@@ -80,7 +81,7 @@ class GSM(Model):
     log_p_x = log_bernoulli(x, p_mu)
 
     kl_tmp = T.reshape(q_z * (log_q_z - T.log(1.0 / n_class)), [-1 , n_cat, n_class])
-    kl = T.sum(kl_tmp, axis=[1,2])
+    kl = T.sum(kl_tmp, axis=[1, 2])
     elbo = T.mean(T.sum(log_p_x, 1) - kl)
 
     return -elbo, -T.mean(kl)
