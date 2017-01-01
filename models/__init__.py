@@ -3,6 +3,7 @@ from mlp import MLP
 from cnn import CNN
 from vae import VAE
 from sbn import SBN
+from sbn_gsm import SBN_GSM
 from adgm import ADGM
 from dadgm import DADGM
 from vae_reinforce import VAE_REINFORCE

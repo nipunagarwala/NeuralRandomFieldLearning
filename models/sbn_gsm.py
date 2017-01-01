@@ -13,8 +13,8 @@ from distributions import log_bernoulli
 from model import Model
 
 
-class GSM(Model):
-  """ Gumbel Softmax w/ categorical latent variables
+class SBN_GSM(Model):
+  """ Sigmoid Belief Network trained using Gumbel Softmax Reparametrization
       https://arxiv.org/pdf/1611.01144v2.pdf
   """
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
@@ -24,20 +24,20 @@ class GSM(Model):
     Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
 
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
-    hid_nl  = lasagne.nonlinearities.rectify
     n_class = 10
-    n_cat   = 30  # number of categorical distributions
+    n_cat   = 20  # number of categorical distributions
+    n_lat   = n_class*n_cat  # latent stochatic variables
+    n_hid   = 500 # size of hidden layer in encoder/decoder
     n_out   = n_dim * n_dim * n_chan
+    hid_nl  = lasagne.nonlinearities.tanh
 
     # create the encoder network
     l_q_in = lasagne.layers.InputLayer(
       shape=(None, n_chan, n_dim, n_dim), input_var=X)
-    l_q_hid1 = lasagne.layers.DenseLayer(
-      l_q_in, num_units=512, nonlinearity=hid_nl)
-    l_q_hid2 = lasagne.layers.DenseLayer(
-      l_q_hid1, num_units=256, nonlinearity=hid_nl)
+    l_q_hid = lasagne.layers.DenseLayer(
+      l_q_in, num_units=n_hid, nonlinearity=hid_nl)
     l_q_mu = lasagne.layers.DenseLayer(
-      l_q_hid2, num_units=n_class*n_cat, nonlinearity=None)
+      l_q_hid, num_units=n_lat, nonlinearity=T.nnet.sigmoid)
     l_q_mu = lasagne.layers.ReshapeLayer(l_q_mu, (-1, n_class))
 
     # sample from Gumble-Softmax posterior
@@ -47,13 +47,15 @@ class GSM(Model):
     l_q_sample = lasagne.layers.ReshapeLayer(l_q_sample, (-1, n_cat, n_class))
 
     # create the decoder network
-    l_p_in = lasagne.layers.InputLayer((None, n_cat*n_class))
-    l_p_hid1 = lasagne.layers.DenseLayer(
-      l_p_in, num_units=256, nonlinearity=hid_nl)
-    l_p_hid2 = lasagne.layers.DenseLayer(
-      l_p_hid1, num_units=512, nonlinearity=hid_nl)
+    l_p_in = lasagne.layers.InputLayer((None, n_lat))
+    l_p_hid = lasagne.layers.DenseLayer(
+      l_p_in, num_units=n_hid, nonlinearity=hid_nl,
+      W=lasagne.init.GlorotUniform())
     l_p_mu = lasagne.layers.DenseLayer(
-      l_p_hid2, num_units=n_out, nonlinearity=None)
+      l_p_hid, num_units=n_out,
+      nonlinearity = lasagne.nonlinearities.sigmoid,
+      W=lasagne.init.GlorotUniform(),
+      b=lasagne.init.Constant(0.))
 
     # save network params
     self.n_class = n_class
