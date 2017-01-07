@@ -3,7 +3,9 @@ import theano
 import theano.tensor as T
 import lasagne
 from lasagne.layers import *
-from layers import GumbelSoftmaxSampleLayer
+import sys; sys.path.append('../models/layers')
+from sampling import GumbelSoftmaxSampleLayer
+sys.path.append('../models/distributions')
 from distributions import log_bernoulli
 
 n_class = 10  # number of classes
@@ -11,7 +13,6 @@ n_cat = 30  # number of categorical distributions
 n_chan = 1  # number of channels
 n_dim = 28  # number of dimensions
 n_in = n_out = n_chan*n_dim*n_dim  # input/output size
-hid_nl = lasagne.nonlinearities.rectify  # nonlinearity
 
 # shared input/training variables
 x = T.matrix(dtype=theano.config.floatX)
@@ -26,16 +27,16 @@ lr = theano.shared(
 
 # encoder design
 net = InputLayer((None, n_in), x)
-net = DenseLayer(net, 512, nonlinearity=hid_nl)
-net = DenseLayer(net, 256, nonlinearity=hid_nl)
+net = DenseLayer(net, 512, nonlinearity=T.nnet.relu)
+net = DenseLayer(net, 256, nonlinearity=T.nnet.relu)
 # bottleneck design
 logits_y = DenseLayer(net, n_cat*n_class, nonlinearity=None)
 logits_y = reshape(logits_y, (-1, n_class))
 y = GumbelSoftmaxSampleLayer(logits_y, tau)
 y = reshape(y, (-1, n_cat, n_class))
 # decoder design
-net = DenseLayer(flatten(y), 256, nonlinearity=hid_nl)
-net = DenseLayer(net, 512, nonlinearity=hid_nl)
+net = DenseLayer(flatten(y), 256, nonlinearity=T.nnet.relu)
+net = DenseLayer(net, 512, nonlinearity=T.nnet.relu)
 logits_x = DenseLayer(net, n_out, nonlinearity=None)
 
 # define the loss
