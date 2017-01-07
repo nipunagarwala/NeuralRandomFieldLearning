@@ -17,7 +17,7 @@ n_in = n_out = n_chan*n_dim*n_dim  # input/output size
 # shared input/training variables
 x = T.matrix(dtype=theano.config.floatX)
 tau = theano.shared(
-    np.float32(1.0), name='temperature',
+    np.float32(5.0), name='temperature',
     allow_downcast=True, borrow=False,
 )
 lr = theano.shared(
@@ -27,31 +27,31 @@ lr = theano.shared(
 
 # encoder design
 net = InputLayer((None, n_in), x)
-net = DenseLayer(net, 512, nonlinearity=T.nnet.relu, W=lasagne.init.GlorotUniform())
-net = DenseLayer(net, 256, nonlinearity=T.nnet.relu, W=lasagne.init.GlorotUniform())
+net = DenseLayer(net, 512, nonlinearity=T.nnet.relu)
+net = DenseLayer(net, 256, nonlinearity=T.nnet.relu)
 # bottleneck design
-logits_y = DenseLayer(net, n_cat*n_class, nonlinearity=None, W=lasagne.init.GlorotUniform())
+logits_y = DenseLayer(net, n_cat*n_class, nonlinearity=None)
 logits_y = reshape(logits_y, (-1, n_class))
 y = GumbelSoftmaxSampleLayer(logits_y, tau)
 y = reshape(y, (-1, n_cat, n_class))
 # decoder design
-net = DenseLayer(flatten(y), 256, nonlinearity=T.nnet.relu, W=lasagne.init.GlorotUniform())
-net = DenseLayer(net, 512, nonlinearity=T.nnet.relu, W=lasagne.init.GlorotUniform())
-logits_x = DenseLayer(net, n_out, nonlinearity=None, W=lasagne.init.GlorotUniform())
+net = DenseLayer(flatten(y), 256, nonlinearity=T.nnet.relu)
+net = DenseLayer(net, 512, nonlinearity=T.nnet.relu)
+logits_x = DenseLayer(net, n_out, nonlinearity=T.nnet.sigmoid)
 
 # define the loss
-_logits_y, _logits_x = lasagne.layers.get_output([logits_y, logits_x], deterministic=False)
+_logits_y, _logits_x = lasagne.layers.get_output([logits_y, logits_x])
 q_y = T.nnet.softmax(_logits_y)
 log_q_y = T.log(q_y + 1e-20)
 log_p_x = log_bernoulli(x, _logits_x)
 
 kl_tmp = T.reshape(q_y * (log_q_y - T.log(1.0 / n_class)), [-1 , n_cat, n_class])
 KL = T.sum(kl_tmp, axis=[1, 2])
-elbo = T.sum(log_p_x, 1) - KL
+elbo = T.sum(log_p_x, axis=1) - KL
 loss = T.mean(-elbo)
 
 # network compilation
-params = get_all_params(logits_x, trainable=True)
+params = get_all_params(logits_x)  # trainable=True
 updates = lasagne.updates.adam(loss, params, learning_rate=lr)
 train_op = theano.function([x], loss, updates=updates)
 eval_op = theano.function([x], loss)
@@ -68,8 +68,6 @@ MIN_TEMP = 0.5
 from tensorflow.examples.tutorials.mnist import input_data
 data = input_data.read_data_sets('/tmp/', one_hot=True).train
 
-tau.set_value(np_temp, borrow=False)
-lr.set_value(np_lr, borrow=False)
 for i in range(1, NUM_ITERS):
     sample, _ = data.next_batch(BATCH_SIZE)
     np_loss = train_op(sample)
