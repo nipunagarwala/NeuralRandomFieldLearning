@@ -7,9 +7,10 @@ from theano.gradient import consider_constant
 
 # ----------------------------------------------------------------------------
 
+
 class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
-    def __init__(self, mean,
-                 temperature=1, hard=False,
+    def __init__(self, logits,
+                 temperature=1,
                  seed=lasagne.random.get_rng().randint(1, 2147462579),
                  **kwargs):
         """
@@ -23,12 +24,9 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
             If hard=True, then the returned sample will be one-hot, otherwise it will
             be a probabilitiy distribution that sums to 1 across classes
         """
-        super(GumbelSoftmaxSampleLayer, self).__init__(mean, **kwargs)
-
-        # save sample parameters
+        super(GumbelSoftmaxSampleLayer, self).__init__(logits, **kwargs)
         self._srng       = RandomStreams(seed)
         self.temperature = temperature
-        self.hard        = hard
 
     def seed(self, seed=lasagne.random.get_rng().randint(1, 2147462579)):
         self._srng.seed(seed)
@@ -43,16 +41,12 @@ class GumbelSoftmaxSampleLayer(lasagne.layers.Layer):
 
     def _sample_gumbel_softmax(self, logits, temperature):
         """ Sample from Gumbel-Softmax distribution """
-        y = logits + self._sample_gumbel(T.shape(logits))
-        return T.nnet.softmax(y / temperature)
+        gumbel = self._sample_gumbel(T.shape(logits))
+        return T.nnet.softmax((logits + gumbel) / temperature)
 
     def get_output_for(self, inputs, deterministic=False, **kwargs):
-        y = self._sample_gumbel_softmax(inputs, self.temperature)
-        if self.hard:
-            k = T.shape(inputs)[-1]
-            y_hard = T.cast(T.equal(y, T.argmax(y, axis=1, keep_dims=True)), y.dtype)
-            y = consider_constant(y_hard - y) + y
-        return y
+        return self._sample_gumbel_softmax(inputs, self.temperature)
+
 
 class GaussianSampleLayer(lasagne.layers.MergeLayer):
     def __init__(self, mu, logsigma, rng=None, **kwargs):
@@ -69,6 +63,7 @@ class GaussianSampleLayer(lasagne.layers.MergeLayer):
         if deterministic:
             return mu
         return mu + T.exp(logsigma) * self.rng.normal(shape)
+
 
 class BernoulliSampleLayer(lasagne.layers.Layer):
     def __init__(self, mean,
