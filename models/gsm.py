@@ -90,8 +90,7 @@ class GSM(Model):
     alpha = T.scalar(dtype=theano.config.floatX) # adjustable learning rate
     tau = T.scalar(dtype=theano.config.floatX) # adjustable tau
     updates = self.create_updates(
-      grads, params,
-      alpha, tau,
+      grads, params, alpha, tau,
       opt_alg, opt_params
     )
 
