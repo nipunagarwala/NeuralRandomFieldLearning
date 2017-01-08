@@ -16,11 +16,15 @@ class SBN_GSM(GSM):
       https://arxiv.org/pdf/1611.01144v2.pdf
       https://arxiv.org/pdf/1402.0030.pdf
       (Note: Most of network is identical to GSM)
+
+      Epoch 200 of 200 took 19.458s (192 minibatches)
+        training loss/acc:		  148.459345	-3.388340
+        validation loss/acc:		147.884916	-3.387381
   """
 
   def create_model(self, x, y, n_dim, n_out, n_chan=1):
     n_class  = 10  # number of classes
-    n_cat    = 30  # number of categorical distributions
+    n_cat    = 20  # number of categorical distributions
     n_lat    = n_class*n_cat  # latent stochastic variables
     n_hid    = 500  # size of hidden layer in encoder/decoder
     n_out    = n_dim * n_dim * n_chan # total dimensionality of ouput
