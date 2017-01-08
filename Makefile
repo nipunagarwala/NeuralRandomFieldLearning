@@ -1,7 +1,7 @@
 PYTHON=/usr/bin/python27
 PYTHON=python
 
-EPOCHS=200
+EPOCHS=100
 NAME=experiment
 
 LOGFOLDER=log
@@ -9,11 +9,11 @@ DATASET=mnist
 MODEL=gsm
 ALG=adam
 
-LR=3e-4
+LR=1e-3
 B1=0.9
 B2=0.999
-SUPERBATCH=1024
-NB=256
+SUPERBATCH=1000
+NB=100
 
 # ----------------------------------------------------------------------------
 
@@ -29,4 +29,3 @@ train:
 	  --b2 $(B2) \
 	  --n_superbatch $(SUPERBATCH) \
 	  --n_batch $(NB)
-

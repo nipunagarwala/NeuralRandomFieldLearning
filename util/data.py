@@ -2,7 +2,6 @@ import sys
 import os
 import pickle
 import tarfile
-
 import numpy as np
 
 # ----------------------------------------------------------------------------
@@ -38,7 +37,7 @@ def load_cifar10():
     print()
     statinfo = os.stat(filepath)
     print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
-    tarfile.open(filepath, 'r:gz').extractall(dest_directory)  
+    tarfile.open(filepath, 'r:gz').extractall(dest_directory)
 
   def load_CIFAR_batch(filename):
     """ load single batch of cifar """
@@ -55,12 +54,13 @@ def load_cifar10():
     f = 'cifar-10-batches-py/data_batch_%d' % b
     X, Y = load_CIFAR_batch(f)
     xs.append(X)
-    ys.append(Y)    
+    ys.append(Y)
   Xtr = np.concatenate(xs)
   Ytr = np.concatenate(ys)
   del X, Y
   Xte, Yte = load_CIFAR_batch('cifar-10-batches-py/test_batch')
   return Xtr, Ytr, Xte, Yte
+
 
 def load_mnist():
   # We first define a download function, supporting both Python 2 and 3.
@@ -109,6 +109,23 @@ def load_mnist():
   # We reserve the last 10000 training examples for validation.
   X_train, X_val = X_train[:-10000], X_train[-10000:]
   y_train, y_val = y_train[:-10000], y_train[-10000:]
+
+  # We just return all the arrays in order, as expected in main().
+  # (It doesn't matter how we do this as long as we can read them again.)
+  return X_train, y_train, X_val, y_val, X_test, y_test
+
+
+def load_digits():
+  from sklearn.datasets import load_digits as _load_digits
+  data = _load_digits()
+  X, y = data.images, data.targets
+
+  # We reserve the last  300 / ~1800 for validation.
+  X_train, X_val = X[:-300], X[-300:]
+  y_train, y_val = y[:-300], y[-300:]
+
+  # TODO: We don't use these right now
+  X_test, y_test = None, None
 
   # We just return all the arrays in order, as expected in main().
   # (It doesn't matter how we do this as long as we can read them again.)
