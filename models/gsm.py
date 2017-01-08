@@ -20,6 +20,10 @@ class GSM(Model):
   """
   Gumbel Softmax w/ categorical latent variables
   https://arxiv.org/pdf/1611.01144v2.pdf
+
+  Epoch 100 of 100 took 39.657s (500 minibatches)
+    training loss/acc:		  100.359742	-19.823688
+    validation loss/acc:		101.420299	-19.615701
   """
   def __init__(
     self, n_dim, n_out, n_chan=1, n_superbatch=12800,
@@ -117,7 +121,7 @@ class GSM(Model):
     self.data_loaded = False
 
     # save neural network
-    self.params = self.get_params()
+    self.params = params
     self.grads = (grads, None)
     self.metrics = (loss, acc)
 
