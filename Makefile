@@ -1,19 +1,19 @@
 PYTHON=/usr/bin/python27
 PYTHON=python
 
-EPOCHS=100
+EPOCHS=200
 NAME=experiment
 
 LOGFOLDER=log
 DATASET=mnist
-MODEL=gsm
+MODEL=sbn_gsm
 ALG=adam
 
 LR=1e-3
 B1=0.9
 B2=0.999
-SUPERBATCH=1000
-NB=100
+SUPERBATCH=1024
+NB=256
 
 # ----------------------------------------------------------------------------
 

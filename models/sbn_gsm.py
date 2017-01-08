@@ -1,98 +1,46 @@
-import pdb
 import time
 import pickle
 import numpy as np
 
+import lasagne
 import theano
 import theano.tensor as T
-from theano.tensor.shared_randomstreams import RandomStreams
-import lasagne
 
+from lasagne.layers import *
 from layers import GumbelSoftmaxSampleLayer
-from distributions import log_bernoulli
-from model import Model
+from gsm import GSM
 
 
-class SBN_GSM(Model):
+class SBN_GSM(GSM):
   """ Sigmoid Belief Network trained using Gumbel Softmax Reparametrization
       https://arxiv.org/pdf/1611.01144v2.pdf
       https://arxiv.org/pdf/1402.0030.pdf
-
-      Epoch 200 of 200 took 21.107s (192 minibatches)
-        training loss/acc:		  152.946276	-2.190767
-        validation loss/acc:		151.944762	-2.191066
+      (Note: Most of network is identical to GSM)
   """
-  def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',
-              opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}):
 
-    # invoke parent constructor
-    Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
-
-  def create_model(self, X, Y, n_dim, n_out, n_chan=1):
-    n_class = 10
-    n_cat   = 20  # number of categorical distributions
-    n_lat   = n_class*n_cat  # latent stochatic variables
-    n_hid   = 500 # size of hidden layer in encoder/decoder
-    n_out   = n_dim * n_dim * n_chan
-    hid_nl  = lasagne.nonlinearities.tanh
+  def create_model(self, x, y, n_dim, n_out, n_chan=1):
+    n_class  = 10  # number of classes
+    n_cat    = 30  # number of categorical distributions
+    n_lat    = n_class*n_cat  # latent stochastic variables
+    n_hid    = 500  # size of hidden layer in encoder/decoder
+    n_out    = n_dim * n_dim * n_chan # total dimensionality of ouput
+    n_in     = n_out
+    tau      = self.tau
 
     # create the encoder network
-    l_q_in = lasagne.layers.InputLayer(
-      shape=(None, n_chan, n_dim, n_dim), input_var=X)
-    l_q_hid = lasagne.layers.DenseLayer(
-      l_q_in, num_units=n_hid, nonlinearity=hid_nl)
-    l_q_mu = lasagne.layers.DenseLayer(
-      l_q_hid, num_units=n_lat, nonlinearity=T.nnet.sigmoid)
-    l_q_mu = lasagne.layers.ReshapeLayer(l_q_mu, (-1, n_class))
-
+    q_net = InputLayer(shape=(None, n_in), input_var=x)
+    q_net = DenseLayer(q_net, num_units=n_hid, nonlinearity=T.nnet.relu)
+    q_net_mu = DenseLayer(q_net, num_units=n_lat, nonlinearity=T.nnet.sigmoid)
+    q_net_mu = reshape(q_net_mu, (-1, n_class))
     # sample from Gumble-Softmax posterior
-    tau = theano.shared(1.0, name="temperature")
-    l_q_sample = GumbelSoftmaxSampleLayer(
-      l_q_mu, temperature=tau, hard=False)
-    l_q_sample = lasagne.layers.ReshapeLayer(l_q_sample, (-1, n_cat, n_class))
-
+    q_sample = GumbelSoftmaxSampleLayer(q_net_mu, tau)
+    q_sample = reshape(q_sample, (-1, n_cat, n_class))
     # create the decoder network
-    l_p_in = lasagne.layers.InputLayer((None, n_lat))
-    l_p_hid = lasagne.layers.DenseLayer(
-      l_p_in, num_units=n_hid, nonlinearity=hid_nl,
-      W=lasagne.init.GlorotUniform())
-    l_p_mu = lasagne.layers.DenseLayer(
-      l_p_hid, num_units=n_out,
-      nonlinearity = lasagne.nonlinearities.sigmoid,
-      W=lasagne.init.GlorotUniform(),
-      b=lasagne.init.Constant(0.))
+    p_net = DenseLayer(flatten(q_sample), num_units=n_hid, nonlinearity=T.nnet.relu)
+    p_net_mu = DenseLayer(p_net, num_units=n_out, nonlinearity=T.nnet.sigmoid)
 
     # save network params
     self.n_class = n_class
-    self.n_cat   = n_cat
+    self.n_cat = n_cat
 
-    return l_p_mu, l_q_mu, l_q_sample
-
-  def create_objectives(self, deterministic=False):
-    X = self.inputs[0]
-    x = X.flatten(2)
-
-    # load network params
-    n_class = self.n_class
-    n_cat   = self.n_cat
-
-    # load network output
-    l_p_mu, l_q_mu, l_q_sample = self.network
-    z, q_mu = lasagne.layers.get_output([l_q_sample, l_q_mu], deterministic=deterministic)
-    p_mu = lasagne.layers.get_output(l_p_mu, z, deterministic=deterministic)
-
-    q_z = T.nnet.softmax(q_mu)
-    log_q_z = T.log(q_z + 1e-20)
-    log_p_x = log_bernoulli(x, p_mu)
-
-    kl_tmp = T.reshape(q_z * (log_q_z - T.log(1.0 / n_class)), [-1 , n_cat, n_class])
-    kl = T.sum(kl_tmp, axis=[1, 2])
-    elbo = T.mean(T.sum(log_p_x, 1) - kl)
-
-    return -elbo, -T.mean(kl)
-
-  def get_params(self):
-    l_p_mu, l_q_mu, _ = self.network
-    p_params = lasagne.layers.get_all_params(l_p_mu, trainable=True)
-    q_params = lasagne.layers.get_all_params(l_q_mu, trainable=True)
-    return p_params + q_params
+    return q_net_mu, p_net_mu

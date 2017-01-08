@@ -1,13 +1,10 @@
-import pdb
 import time
 import pickle
 import numpy as np
-from collections import OrderedDict
 
 import lasagne
 import theano
 import theano.tensor as T
-from theano.tensor.shared_randomstreams import RandomStreams
 
 from lasagne.layers import *
 from layers import GumbelSoftmaxSampleLayer
@@ -21,14 +18,12 @@ class GSM(Model):
   Gumbel Softmax w/ categorical latent variables
   https://arxiv.org/pdf/1611.01144v2.pdf
 
-  Epoch 100 of 100 took 39.657s (500 minibatches)
-    training loss/acc:		  100.359742	-19.823688
-    validation loss/acc:		101.420299	-19.615701
+  Epoch 100 of 100 took 60.530s (500 minibatches)
+    training loss/acc:		  95.905443	-19.943117
+    validation loss/acc:		98.537678	-19.804097
   """
-  def __init__(
-    self, n_dim, n_out, n_chan=1, n_superbatch=12800,
-    opt_alg='adam', opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}
-  ):
+  def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800,
+              opt_alg='adam', opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}):
     # invoke parent constructor
     # create shared data variables
     train_set_x = theano.shared(
@@ -172,25 +167,6 @@ class GSM(Model):
   def get_params(self):
     _, logits_x = self.network
     return get_all_params(logits_x)
-
-  def create_updates(self, grads, params, alpha, opt_alg, opt_params):
-    scaled_grads = [grad * alpha for grad in grads]
-    lr = opt_params.get('lr', 1e-3)
-    if opt_alg == 'sgd':
-      grad_updates = lasagne.updates.sgd(
-        scaled_grads, params,
-        learning_rate=lr,
-      )
-    elif opt_alg == 'adam':
-      b1, b2 = opt_params.get('b1', 0.9), opt_params.get('b2', 0.999)
-      grad_updates = lasagne.updates.adam(
-        scaled_grads, params,
-        learning_rate=lr, beta1=b1, beta2=b2,
-      )
-    else:
-      grad_updates = OrderedDict()
-
-    return grad_updates
 
   def fit(
     self, X_train, Y_train, X_val, Y_val,
