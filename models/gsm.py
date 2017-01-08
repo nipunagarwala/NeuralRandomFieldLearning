@@ -60,17 +60,10 @@ class GSM(Model):
     val_set_y_int = T.cast(val_set_y, 'int32')
 
     # create shared learning variables
-    lr = theano.shared(
-        np.float32(0.001), name='learning_rate',
-        allow_downcast=True, borrow=False,
-    )
     tau = theano.shared(
         np.float32(5.0), name='temperature',
         allow_downcast=True, borrow=False,
     )
-
-    # save learning variables
-    self.lr = lr
     self.tau = tau
 
     # create input vars
@@ -93,10 +86,11 @@ class GSM(Model):
     params = self.get_params()
 
     # create updates
-    updates = self.create_updates(grads, params, lr, opt_alg, opt_params)
+    alpha = T.scalar(dtype=theano.config.floatX) # adjustable learning rate
+    updates = self.create_updates(grads, params, alpha, opt_alg, opt_params)
 
     self.train = theano.function(
-      [idx1, idx2], [loss, acc],
+      [idx1, idx2, alpha], [loss, acc],
       updates=updates,
       givens={
         x : train_set_x[idx1:idx2],
@@ -179,13 +173,18 @@ class GSM(Model):
     _, logits_x = self.network
     return get_all_params(logits_x)
 
-  def create_updates(self, grads, params, lr, opt_alg, opt_params):
+  def create_updates(self, grads, params, alpha, opt_alg, opt_params):
+    scaled_grads = [grad * alpha for grad in grads]
+    lr = opt_params.get('lr', 1e-3)
     if opt_alg == 'sgd':
-      grad_updates = lasagne.updates.sgd(grads, params, learning_rate=lr)
+      grad_updates = lasagne.updates.sgd(
+        scaled_grads, params,
+        learning_rate=lr,
+      )
     elif opt_alg == 'adam':
       b1, b2 = opt_params.get('b1', 0.9), opt_params.get('b2', 0.999)
       grad_updates = lasagne.updates.adam(
-        grads, params,
+        scaled_grads, params,
         learning_rate=lr, beta1=b1, beta2=b2,
       )
     else:
@@ -199,11 +198,11 @@ class GSM(Model):
   ):
     """Train the model"""
 
+    alpha = 1.0  # learning rate, which can be adjusted later
     tau0 = 1.0  # initial temp
     MIN_TEMP = 0.5  # minimum temp
     ANNEAL_RATE = 0.00003  # adjusting rate
     np_temp = tau0
-    np_lr = 0.001
     n_data = len(X_train)
     n_superbatch = self.n_superbatch
     i = 1  # track # of train() executions
@@ -224,14 +223,13 @@ class GSM(Model):
         datatype='train', shuffle=True,
       ):
         for idx1, idx2 in iterate_minibatch_idx(len(X_sb), n_batch):
-          err, acc = self.train(idx1, idx2)
+          err, acc = self.train(idx1, idx2, alpha)
 
           # anneal temp and learning rate
           if i % 1000 == 1:
+            alpha *= 0.9
             np_temp = np.maximum(tau0*np.exp(-ANNEAL_RATE*i), MIN_TEMP)
-            np_lr *= 0.9
             self.tau.set_value(np_temp, borrow=False)
-            self.lr.set_value(np_lr, borrow=False)
 
           # collect metrics
           i += 1
