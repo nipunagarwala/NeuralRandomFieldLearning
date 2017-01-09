@@ -81,7 +81,7 @@ class GSM(Model):
     params = self.get_params()
 
     # create updates
-    alpha = T.scalar(dtype=theano.config.floatX) # adjustable learning rate
+    alpha = T.scalar(dtype=theano.config.floatX)  # adjustable learning rate
     updates = self.create_updates(grads, params, alpha, opt_alg, opt_params)
 
     self.train = theano.function(
