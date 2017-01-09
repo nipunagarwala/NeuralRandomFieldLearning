@@ -9,7 +9,7 @@ DATASET=mnist
 MODEL=sbn_gsm
 ALG=adam
 
-LR=3e-4
+LR=1e-3
 B1=0.9
 B2=0.999
 SUPERBATCH=1024
