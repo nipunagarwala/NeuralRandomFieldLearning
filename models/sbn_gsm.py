@@ -14,9 +14,9 @@ class SBN_GSM(GSM):
       https://arxiv.org/pdf/1402.0030.pdf
       (Note: Most of network is identical to GSM)
 
-      Epoch 114 of 200 took 21.594s (192 minibatches)
-        training loss/acc:	    98.407468	-22.044187
-        validation loss/acc:		99.778495	-21.824476
+      Epoch 200 of 200 took 22.430s (192 minibatches)
+        training loss/acc:		  96.704909	-22.189577
+        validation loss/acc:    98.460990	-21.986126
   """
 
   def create_model(self, x, y, n_dim, n_out, n_chan=1):
