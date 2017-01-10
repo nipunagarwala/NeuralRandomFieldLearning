@@ -1,4 +1,3 @@
-import numpy as np
 import theano.tensor as T
 from lasagne.layers import (
   InputLayer, DenseLayer,
@@ -12,7 +11,6 @@ class SBN_GSM(GSM):
   """ Sigmoid Belief Network trained using Gumbel Softmax Reparametrization
       https://arxiv.org/pdf/1611.01144v2.pdf
       https://arxiv.org/pdf/1402.0030.pdf
-      (Note: Most of network is identical to GSM)
 
       Epoch 200 of 200 took 22.430s (192 minibatches)
         training loss/acc:		  96.704909	-22.189577

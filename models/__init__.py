@@ -6,6 +6,7 @@ from sbn import SBN
 from sbn_gsm import SBN_GSM
 from adgm import ADGM
 from dadgm import DADGM
+from dadgm_gsm import DADGM_GSM
 from vae_reinforce import VAE_REINFORCE
 from gsm import GSM
 from rbm import RBM

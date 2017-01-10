@@ -6,7 +6,7 @@ NAME=experiment
 
 LOGFOLDER=log
 DATASET=mnist
-MODEL=sbn_gsm
+MODEL=dadgm_gsm
 ALG=adam
 
 LR=1e-3

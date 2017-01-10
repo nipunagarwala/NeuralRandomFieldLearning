@@ -20,7 +20,7 @@ class GSM(Model):
 
   Epoch 100 of 100 took 60.530s (500 minibatches)
     training loss/acc:		  95.905443	-19.943117
-    validation loss/acc:		98.537678	-19.804097
+    validation loss/acc:	  98.537678	-19.804097
   """
   def __init__(self, n_dim, n_out, n_chan=1, n_superbatch=12800,
               opt_alg='adam', opt_params={'lr': 1e-3, 'b1': 0.9, 'b2': 0.99}):
