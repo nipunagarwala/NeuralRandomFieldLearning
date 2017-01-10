@@ -131,13 +131,15 @@ class DADGM_GSM(GSM):
     )
 
     # calculate the likelihoods
+    log_px = log_bernoulli(x, px_mu)
+    log_pa = log_normal2(qa_sample, pa_mu, pa_logsigma)
+    log_pxa = log_px + log_pa
+
     qz = T.nnet.softmax(qz_mu)
     log_qz = T.log(qz + 1e-20)
     log_qa = log_normal2(qa_sample, qa_mu, qa_logsigma)
     log_qza = log_qz + log_qa
-    log_px = log_bernoulli(x, px_mu)
-    log_pa = log_normal2(qa_sample, pa_mu, pa_logsigma)
-    log_pxa = log_px + log_pa
+
     # calculate KL divergence
     kl_tmp = T.reshape(
       qz * (log_qza - T.log(1.0 / n_class)),
