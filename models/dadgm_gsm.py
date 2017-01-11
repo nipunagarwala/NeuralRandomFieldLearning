@@ -29,6 +29,7 @@ class DADGM_GSM(GSM):
     n_out = n_dim * n_dim * n_chan  # total dimensionality of ouput
     n_in = n_out
     tau = self.tau
+    tanh = lasagne.nonlinearities.tanh
     relu_shift = lambda av: T.nnet.relu(av+10)-10 # for numerical stability
 
     # create the encoder network
@@ -47,11 +48,11 @@ class DADGM_GSM(GSM):
     qz_net_in = InputLayer((None, n_aux))
     qz_net_a = DenseLayer(
       qz_net_in, num_units=n_hid,
-      nonlinearity=relu_shift,
+      nonlinearity=tanh,
     )
     qz_net_b = DenseLayer(
       qa_net_in, num_units=n_hid,
-      nonlinearity=relu_shift,
+      nonlinearity=tanh,
     )
     qz_net = ElemwiseSumLayer([qz_net_a, qz_net_b])
     qz_net = DenseLayer(
@@ -81,7 +82,7 @@ class DADGM_GSM(GSM):
     # - create p(a|z)
     pa_net = DenseLayer(
       px_net_in, num_units=n_hid,
-      nonlinearity=relu_shift,
+      nonlinearity=tanh,
     )
     pa_net_mu = DenseLayer(
       pa_net, num_units=n_aux,
@@ -155,38 +156,7 @@ class DADGM_GSM(GSM):
     elbo = log_paxz - log_qza_given_x
     loss = T.mean(-elbo)
 
-    if deterministic == False:
-      self.log_paxz = log_paxz
-      self.log_qza_given_x = log_qza_given_x
-
     return loss, -T.mean(log_qz_given_x)
-
-  def create_gradients(self, loss, deterministic=False):
-    px_net_mu, pa_net_mu, pa_net_logsigma, \
-    qa_net_mu, _, _, _, qz_net_sample = self.network
-
-    p_params = get_all_params(
-      [px_net_mu, pa_net_mu, pa_net_logsigma],
-      trainable=True,
-    )
-    qa_params = get_all_params(qa_net_mu, trainable=True)
-    qz_params = get_all_params(qz_net_sample, trainable=True)
-
-    log_paxz = self.log_paxz
-    log_qza_given_x = self.log_qza_given_x
-    elbo = T.mean(log_paxz - log_qza_given_x)
-
-    p_grads = T.grad(-log_paxz.mean(), p_params)
-    qa_grads = T.grad(-elbo, qa_params)
-    qz_grads = T.grad(-elbo, qz_params)
-
-    # combine and clip gradients
-    clip_grad, max_norm = 1, 5
-    grads = p_grads + qa_grads + qz_grads
-    mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
-    cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
-
-    return cgrads
 
   def get_params(self):
     # load network
