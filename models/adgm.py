@@ -22,7 +22,7 @@ class ADGM(Model):
     self.model = model
 
     Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
-  
+
   def create_model(self, X, Y, n_dim, n_out, n_chan=1):
     # params
     n_lat = 200 # latent stochastic variables
@@ -35,7 +35,7 @@ class ADGM(Model):
     # create the encoder network
 
     # create q(a|x)
-    l_qa_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim), 
+    l_qa_in = lasagne.layers.InputLayer(shape=(None, n_chan, n_dim, n_dim),
                                      input_var=X)
     l_qa_hid = lasagne.layers.DenseLayer(
         l_qa_in, num_units=n_hid,
@@ -116,12 +116,12 @@ class ADGM(Model):
     # l_pa_hid2 = lasagne.layers.ElemwiseSumLayer([l_pa_hid1a, l_pa_hid1b])
     # l_pa_hid2 = lasagne.layers.NonlinearityLayer(l_pa_hid2, hid_nl)
     # l_pa_mu = lasagne.layers.DenseLayer(
-    #     l_pa_hid2, num_units=n_lat,
+    #     l_pa_hid2, num_units=n_aux,
     #     W=lasagne.init.GlorotNormal(),
     #     b=lasagne.init.Normal(1e-3),
     #     nonlinearity=None)
     # l_pa_logsigma = lasagne.layers.DenseLayer(
-    #     l_pa_hid2, num_units=n_lat,
+    #     l_pa_hid2, num_units=n_aux,
     #     W=lasagne.init.GlorotNormal(),
     #     b=lasagne.init.Normal(1e-3),
     #     nonlinearity=relu_shift)
@@ -156,18 +156,18 @@ class ADGM(Model):
     l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
       l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
       l_qa, l_qz = self.network
-    
+
     # load network output
     pa_mu, pa_logsigma, qz_mu, qz_logsigma, qa_mu, qa_logsigma, a, z \
       = lasagne.layers.get_output(
-          [ l_pa_mu, l_pa_logsigma, l_qz_mu, l_qz_logsigma, 
-            l_qa_mu, l_qa_logsigma, l_qa, l_qz ], 
+          [ l_pa_mu, l_pa_logsigma, l_qz_mu, l_qz_logsigma,
+            l_qa_mu, l_qa_logsigma, l_qa, l_qz ],
           deterministic=deterministic)
 
     if self.model == 'bernoulli':
       px_mu = lasagne.layers.get_output(l_px_mu, deterministic=deterministic)
     elif self.model == 'gaussian':
-      px_mu, px_logsigma = lasagne.layers.get_output([l_px_mu, l_px_logsigma], 
+      px_mu, px_logsigma = lasagne.layers.get_output([l_px_mu, l_px_logsigma],
                                                      deterministic=deterministic)
 
     # entropy term
@@ -218,5 +218,5 @@ class ADGM(Model):
     params0 = lasagne.layers.get_all_params(l_pa_mu, trainable=True)
     for param in params0:
       if param not in params: params.append(param)
-    
+
     return params

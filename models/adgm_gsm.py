@@ -5,9 +5,10 @@ from lasagne.layers import (
   InputLayer, DenseLayer, ElemwiseSumLayer,
   reshape, flatten, get_all_params, get_output,
 )
-from lasagne.init import GlorotNormal, Normal
+from lasagne.updates import total_norm_constraint
+from lasagne.init import GlorotNormal, Normal, GlorotUniform
 from layers import GumbelSoftmaxSampleLayer, GaussianSampleLayer
-from distributions import log_bernoulli, log_normal2
+from distributions import log_bernoulli, log_normal, log_normal2
 from gsm import GSM
 
 import theano, lasagne
@@ -29,51 +30,62 @@ class DADGM_GSM(GSM):
     n_out = n_dim * n_dim * n_chan  # total dimensionality of ouput
     n_in = n_out
     tau = self.tau
-    tanh = lasagne.nonlinearities.tanh
+    hid_nl = T.nnet.relu
     relu_shift = lambda av: T.nnet.relu(av+10)-10 # for numerical stability
 
     # create the encoder network
     # - create q(a|x)
     qa_net_in = InputLayer(shape=(None, n_in), input_var=x)
+    qa_net = DenseLayer(
+      qa_net_in, num_units=n_hid,
+      W=GlorotNormal('relu'),
+      b=Normal(1e-3),
+      nonlinearity=hid_nl,
+    )
     qa_net_mu = DenseLayer(
-      qa_net_in, num_units=n_aux,
+      qa_net, num_units=n_aux,
+      W=GlorotNormal(),
+      b=Normal(1e-3),
       nonlinearity=None,
     )
     qa_net_logsigma = DenseLayer(
-      qa_net_in, num_units=n_aux,
+      qa_net, num_units=n_aux,
+      W=GlorotNormal(),
+      b=Normal(1e-3),
       nonlinearity=relu_shift,
     )
     qa_net_sample = GaussianSampleLayer(qa_net_mu, qa_net_logsigma)
     # - create q(z|a, x)
-    qz_net_in = InputLayer((None, n_aux))
     qz_net_a = DenseLayer(
-      qz_net_in, num_units=n_hid,
-      nonlinearity=tanh,
+      qa_net_sample, num_units=n_hid,
+      nonlinearity=hid_nl,
     )
     qz_net_b = DenseLayer(
       qa_net_in, num_units=n_hid,
-      nonlinearity=tanh,
+      nonlinearity=hid_nl,
     )
     qz_net = ElemwiseSumLayer([qz_net_a, qz_net_b])
-    qz_net = DenseLayer(
-      qz_net, num_units=n_hid,
-      nonlinearity=relu_shift,
-    )
+    qz_net = lasagne.layers.NonlinearityLayer(qz_net, hid_nl)
     qz_net_mu = DenseLayer(
       qz_net, num_units=n_lat,
       nonlinearity=None,
     )
+    # qz_net_logsigma = DenseLayer(
+    #   qz_net, num_units=n_lat,
+    #   W=lasagne.init.GlorotNormal(),
+    #   b=lasagne.init.Normal(1e-3),
+    #   nonlinearity=relu_shift,
+    # )
+    # qz_net_sample = GaussianSampleLayer(qz_net_mu, qz_net_logsigma)
     qz_net_mu = reshape(qz_net_mu, (-1, n_class))
-    # - sample from Gumble-Softmax posterior
     qz_net_sample = GumbelSoftmaxSampleLayer(qz_net_mu, tau)
     qz_net_sample = reshape(qz_net_sample, (-1, n_cat, n_class))
-    qz_net_sample = flatten(qz_net_sample)
+
     # create the decoder network
     # - create p(x|z)
-    px_net_in = InputLayer((None, n_lat))
     px_net = DenseLayer(
-      px_net_in, num_units=n_hid,
-      nonlinearity=relu_shift,
+      flatten(qz_net_sample), num_units=n_hid,
+      nonlinearity=hid_nl,
     )
     px_net_mu = DenseLayer(
       px_net, num_units=n_out,
@@ -81,29 +93,30 @@ class DADGM_GSM(GSM):
     )
     # - create p(a|z)
     pa_net = DenseLayer(
-      px_net_in, num_units=n_hid,
-      nonlinearity=tanh,
+      flatten(qz_net_sample), num_units=n_hid,
+      W=GlorotNormal('relu'),
+      b=Normal(1e-3),
     )
     pa_net_mu = DenseLayer(
       pa_net, num_units=n_aux,
+      W=GlorotNormal(),
+      b=Normal(1e-3),
       nonlinearity=None,
     )
     pa_net_logsigma = DenseLayer(
       pa_net, num_units=n_aux,
+      W=GlorotNormal(),
+      b=Normal(1e-3),
       nonlinearity=relu_shift,
-      W=GlorotNormal(), b=Normal(1e-3),
     )
 
     # save network params
     self.n_class = n_class
     self.n_cat = n_cat
 
-    # store input layers
-    self.input_layers = (qa_net_in, qz_net_in, px_net_in)
-
     return px_net_mu, pa_net_mu, pa_net_logsigma, \
-      qa_net_mu, qa_net_logsigma, qz_net_mu, \
-      qa_net_sample, qz_net_sample
+      qz_net_mu, qa_net_mu, qa_net_logsigma, \
+      qz_net_sample, qa_net_sample,
 
   def create_objectives(self, deterministic=False):
     x = self.inputs[0]
@@ -112,63 +125,50 @@ class DADGM_GSM(GSM):
     n_class = self.n_class
     n_cat = self.n_cat
 
-    # load network output
-    px_net_mu, pa_net_mu, pa_net_logsigma, \
-    qa_net_mu, qa_net_logsigma, qz_net_mu, \
-    qa_net_sample, qz_net_sample = self.network
-
-    # load network inputs for mapping
-    qa_net_in, qz_net_in, px_net_in = self.input_layers
-
-    # compute each part of the network
-    qa_mu, qa_logsigma, qa_sample = get_output(
-      [qa_net_mu, qa_net_logsigma, qa_net_sample],
-      deterministic=deterministic,
-    )
-    qz_mu, qz_sample = get_output(
-      [qz_net_mu, qz_net_sample],
-      {qz_net_in : qa_sample, qa_net_in : x},
-      deterministic=deterministic,
-    )
-    pa_mu, pa_logsigma = get_output(
-      [pa_net_mu, pa_net_logsigma],
-      {px_net_in : qz_sample},
-      deterministic=deterministic,
-    )
-    px_mu = get_output(
-      px_net_mu, {px_net_in : qz_sample},
+    # compute network
+    px_mu, pa_mu, pa_logsigma, qz_mu, qa_mu, qa_logsigma, \
+    qz_sample, qa_sample = get_output(
+      self.network,
       deterministic=deterministic,
     )
 
     # calculate the likelihoods
-    qz_given_x = T.nnet.softmax(qz_mu)
-    log_qz_given_x = T.log(qz_given_x + 1e-20).reshape((-1, self.n_cat*self.n_class)).sum(axis=1)
+    qz_given_ax = T.nnet.softmax(qz_mu)  # (batch*n_cat, n_class)
+    _qz_given_ax = qz_given_ax.reshape((-1, n_cat*n_class))  # (batch, n_lat)
+    log_qz_given_ax = T.log(_qz_given_ax + 1e-20).sum(axis=1)
     log_qa_given_x = log_normal2(qa_sample, qa_mu, qa_logsigma).sum(axis=1)
-    log_qza_given_x = log_qz_given_x + log_qa_given_x
+    # log_qz_given_ax = log_normal2(qz_sample, qz_mu, qz_logsigma).sum(axis=1)
+    log_qza_given_x = log_qz_given_ax + log_qa_given_x
 
-    pz = T.ones_like(qz_sample)*np.float32(0.5)
-    log_pz = log_bernoulli(qz_sample, pz).sum(axis=1)
+    # z_prior_sigma = T.cast(T.ones_like(qz_logsigma), dtype=theano.config.floatX)
+    # z_prior_mu = T.cast(T.zeros_like(qz_mu), dtype=theano.config.floatX)
+    # log_pz = log_normal(qz_sample, z_prior_mu, z_prior_sigma).sum(axis=1)
     log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
     log_pa_given_z = log_normal2(qa_sample, pa_mu, pa_logsigma).sum(axis=1)
-    log_paxz = log_px_given_z + log_pa_given_z + log_pz
+    log_paxz = log_pa_given_z + log_px_given_z  # + log_pz
 
     # logp(z)+logp(a|z)-logq(a)logq(z|a)
-    elbo = log_paxz - log_qza_given_x
-    loss = T.mean(-elbo)
+    elbo = T.mean(log_paxz - log_qza_given_x)
 
-    return loss, -T.mean(log_qz_given_x)
+    return -elbo, -T.mean(log_qa_given_x)
+
+  def create_gradients(self, loss, deterministic=False):
+    grads = GSM.create_gradients(self, loss, deterministic)
+
+    # combine and clip gradients
+    clip_grad, max_norm = 1, 5
+    mgrads = total_norm_constraint(grads, max_norm=max_norm)
+    cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
+
+    return cgrads
 
   def get_params(self):
-    # load network
-    px_net_mu, pa_net_mu, pa_net_logsigma, \
-    qa_net_mu, _, _, _, qz_net_sample = self.network
+    px_net_mu, pa_net_mu = self.network[:2]
+    params = get_all_params(px_net_mu, trainable=True)
+    params0 = get_all_params(pa_net_mu, trainable=True)
 
-    # load params individually
-    p_params = get_all_params(
-      [px_net_mu, pa_net_mu, pa_net_logsigma],
-      trainable=True,
-    )
-    qa_params = get_all_params(qa_net_mu, trainable=True)
-    qz_params = get_all_params(qz_net_sample, trainable=True)
+    for param in params0:
+      if param not in params:
+        params.append(param)
 
-    return p_params + qa_params + qz_params
+    return params
