@@ -6,9 +6,9 @@ from lasagne.layers import (
   reshape, flatten, get_all_params, get_output,
 )
 from lasagne.updates import total_norm_constraint
-from lasagne.init import GlorotNormal, Normal, GlorotUniform
+from lasagne.init import GlorotNormal, Normal
 from layers import GumbelSoftmaxSampleLayer, GaussianSampleLayer
-from distributions import log_bernoulli, log_normal, log_normal2
+from distributions import log_bernoulli, log_normal2
 from gsm import GSM
 
 import theano, lasagne
@@ -29,7 +29,7 @@ class ADGM_GSM(GSM):
     n_out = n_dim * n_dim * n_chan  # total dimensionality of ouput
     n_in = n_out
     tau = self.tau
-    hid_nl = lasagne.nonlinearities.rectify
+    hid_nl = T.nnet.relu
     relu_shift = lambda av: T.nnet.relu(av+10)-10 # for numerical stability
 
     # create the encoder network
@@ -37,51 +37,44 @@ class ADGM_GSM(GSM):
     qa_net_in = InputLayer(shape=(None, n_in), input_var=x)
     qa_net = DenseLayer(
       qa_net_in, num_units=n_hid,
-      W=GlorotNormal('relu'),
-      b=Normal(1e-3),
+      W=GlorotNormal('relu'), b=Normal(1e-3),
       nonlinearity=hid_nl,
     )
     qa_net_mu = DenseLayer(
       qa_net, num_units=n_aux,
-      W=GlorotNormal(),
-      b=Normal(1e-3),
+      W=GlorotNormal(), b=Normal(1e-3),
       nonlinearity=None,
     )
     qa_net_logsigma = DenseLayer(
       qa_net, num_units=n_aux,
-      W=GlorotNormal(),
-      b=Normal(1e-3),
+      W=GlorotNormal(), b=Normal(1e-3),
       nonlinearity=relu_shift,
     )
     qa_net_sample = GaussianSampleLayer(qa_net_mu, qa_net_logsigma)
     # - create q(z|a, x)
     qz_net_a = DenseLayer(
       qa_net_sample, num_units=n_hid,
-      W=GlorotNormal('relu'),
-      b=Normal(1e-3),
       nonlinearity=hid_nl,
     )
     qz_net_b = DenseLayer(
       qa_net_in, num_units=n_hid,
-      W=GlorotNormal('relu'),
-      b=Normal(1e-3),
       nonlinearity=hid_nl,
     )
     qz_net = ElemwiseSumLayer([qz_net_a, qz_net_b])
-    qz_net = NonlinearityLayer(qz_net, hid_nl)
+    qz_net = DenseLayer(
+      qz_net, num_units=n_hid,
+      nonlinearity=hid_nl
+    )
     qz_net_mu = DenseLayer(
       qz_net, num_units=n_lat,
-      W=GlorotNormal(),
-      b=Normal(1e-3),
       nonlinearity=None,
     )
-    # qz_net_logsigma = None
-    qz_net_logsigma = DenseLayer(
-      qz_net, num_units=n_lat,
-      W=GlorotNormal(),
-      b=Normal(1e-3),
-      nonlinearity=relu_shift,
-    )
+    # qz_net_logsigma = DenseLayer(
+    #   qz_net, num_units=n_lat,
+    #   W=GlorotNormal(),
+    #   b=Normal(1e-3),
+    #   nonlinearity=relu_shift,
+    # )
     # qz_net_sample = GaussianSampleLayer(qz_net_mu, qz_net_logsigma)
     qz_net_mu = reshape(qz_net_mu, (-1, n_class))
     qz_net_sample = GumbelSoftmaxSampleLayer(qz_net_mu, tau)
@@ -91,22 +84,18 @@ class ADGM_GSM(GSM):
     # - create p(x|z)
     px_net = DenseLayer(
       flatten(qz_net_sample), num_units=n_hid,
-      W=GlorotNormal('relu'),
-      b=Normal(1e-3),
       nonlinearity=hid_nl,
     )
     px_net_mu = DenseLayer(
       px_net, num_units=n_out,
-      W=GlorotUniform(),
-      b=Normal(1e-3),
       nonlinearity=T.nnet.sigmoid,
     )
 
     # - create p(a|z)
     pa_net = DenseLayer(
       flatten(qz_net_sample), num_units=n_hid,
-      W=GlorotNormal('relu'),
-      b=Normal(1e-3),
+      W=GlorotNormal('relu'), b=Normal(1e-3),
+      nonlinearity=hid_nl,
     )
     pa_net_mu = DenseLayer(
       pa_net, num_units=n_aux,
@@ -126,7 +115,7 @@ class ADGM_GSM(GSM):
     self.n_cat = n_cat
 
     return px_net_mu, pa_net_mu, pa_net_logsigma, \
-      qz_net_mu, qz_net_logsigma, qa_net_mu, qa_net_logsigma, \
+      qz_net_mu, qa_net_mu, qa_net_logsigma, \
       qz_net_sample, qa_net_sample,
 
   def create_objectives(self, deterministic=False):
@@ -137,7 +126,7 @@ class ADGM_GSM(GSM):
     n_cat = self.n_cat
 
     # compute network
-    px_mu, pa_mu, pa_logsigma, qz_mu, qz_logsigma, \
+    px_mu, pa_mu, pa_logsigma, qz_mu, \
     qa_mu, qa_logsigma, qz_sample, qa_sample = get_output(
       self.network,
       deterministic=deterministic,
@@ -152,9 +141,11 @@ class ADGM_GSM(GSM):
     # log_qz_given_ax = log_normal2(qz_sample, qz_mu, qz_logsigma).sum(axis=1)
     log_qza_given_x = log_qz_given_ax + log_qa_given_x
 
-    z_prior_sigma = T.cast(T.ones_like(_qz_sample), dtype=theano.config.floatX)
-    z_prior_mu = T.cast(T.zeros_like(_qz_sample), dtype=theano.config.floatX)
-    log_pz = log_normal2(_qz_sample, z_prior_mu,  z_prior_sigma).sum(axis=1)
+    # z_prior_sigma = T.cast(T.ones_like(_qz_sample), dtype=theano.config.floatX)
+    # z_prior_mu = T.cast(T.zeros_like(_qz_sample), dtype=theano.config.floatX)
+    # log_pz = log_normal2(_qz_sample, z_prior_mu,  z_prior_sigma).sum(axis=1)
+    z_prior = T.ones_like(_qz_sample)*np.float32(0.5)
+    log_pz = log_bernoulli(_qz_sample, z_prior).sum(axis=1)
     log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
     log_pa_given_z = log_normal2(qa_sample, pa_mu, pa_logsigma).sum(axis=1)
     log_paxz = log_pa_given_z + log_px_given_z + log_pz
