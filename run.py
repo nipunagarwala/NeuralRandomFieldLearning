@@ -111,8 +111,8 @@ def train(args):
   elif args.model == 'dadgm':
     model = models.DADGM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
                          n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
-  elif args.model == 'dadgm_gsm':
-    model = models.DADGM_GSM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
+  elif args.model == 'adgm_gsm':
+    model = models.ADGM_GSM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
                              n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p)
   elif args.model == 'gsm':
     model = models.GSM(n_dim=n_dim, n_out=n_out, n_chan=n_channels,
