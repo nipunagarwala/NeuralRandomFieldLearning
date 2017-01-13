@@ -8,7 +8,7 @@ from lasagne.layers import (
 from lasagne.updates import total_norm_constraint
 from lasagne.init import GlorotNormal, Normal
 from layers import GumbelSoftmaxSampleLayer, GaussianSampleLayer
-from distributions import log_bernoulli, log_normal2
+from distributions import log_bernoulli, log_normal2, log_gumbel_softmax
 from gsm import GSM
 
 import theano, lasagne
@@ -76,8 +76,8 @@ class ADGM_GSM(GSM):
     #   nonlinearity=relu_shift,
     # )
     # qz_net_sample = GaussianSampleLayer(qz_net_mu, qz_net_logsigma)
-    qz_net_mu = reshape(qz_net_mu, (-1, n_class))
-    qz_net_sample = GumbelSoftmaxSampleLayer(qz_net_mu, tau)
+    qz_net_sample = GumbelSoftmaxSampleLayer(reshape(qz_net_mu, (-1, n_class)), tau)
+    qz_net_mu = reshape(qz_net_mu, (-1, n_cat, n_class))
     qz_net_sample = reshape(qz_net_sample, (-1, n_cat, n_class))
 
     # create the decoder network
@@ -133,19 +133,12 @@ class ADGM_GSM(GSM):
     )
 
     # calculate the likelihoods
-    qz_given_ax = T.nnet.softmax(qz_mu)  # (batch*n_cat, n_class)
-    _qz_given_ax = qz_given_ax.reshape((-1, n_cat*n_class))  # (batch, n_lat)
-    _qz_sample = qz_sample.reshape((-1, n_cat*n_class))
-    log_qz_given_ax = T.log(_qz_given_ax + 1e-20).sum(axis=1)
     log_qa_given_x = log_normal2(qa_sample, qa_mu, qa_logsigma).sum(axis=1)
-    # log_qz_given_ax = log_normal2(qz_sample, qz_mu, qz_logsigma).sum(axis=1)
+    log_qz_given_ax = log_gumbel_softmax(qz_sample, qz_mu, tau=self.tau).sum(axis=1)
     log_qza_given_x = log_qz_given_ax + log_qa_given_x
 
-    # z_prior_sigma = T.cast(T.ones_like(_qz_sample), dtype=theano.config.floatX)
-    # z_prior_mu = T.cast(T.zeros_like(_qz_sample), dtype=theano.config.floatX)
-    # log_pz = log_normal2(_qz_sample, z_prior_mu,  z_prior_sigma).sum(axis=1)
-    z_prior = T.ones_like(_qz_sample)*np.float32(0.5)
-    log_pz = log_bernoulli(_qz_sample, z_prior).sum(axis=1)
+    pz_prior_mu = T.cast(T.ones_like(qz_sample) / n_class, dtype=theano.config.floatX)
+    log_pz = log_gumbel_softmax(qz_sample, pz_prior_mu, tau=self.tau).sum(axis=1)
     log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
     log_pa_given_z = log_normal2(qa_sample, pa_mu, pa_logsigma).sum(axis=1)
     log_paxz = log_pa_given_z + log_px_given_z + log_pz
@@ -153,7 +146,7 @@ class ADGM_GSM(GSM):
     # logp(z)+logp(a|z)-logq(a)-logq(z|a)
     elbo = T.mean(log_paxz - log_qza_given_x)
 
-    return -elbo, -T.mean(log_qa_given_x)
+    return -elbo, -T.mean(log_qz_given_ax)
 
   def create_gradients(self, loss, deterministic=False):
     grads = GSM.create_gradients(self, loss, deterministic)

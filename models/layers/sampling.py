@@ -7,17 +7,21 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 class GumbelSoftmax:
     def __init__(self, tau, eps=1e-20):
+        """
+        Bottom of page 10.
+        https://arxiv.org/pdf/1611.01144v2.pdf
+        """
         assert tau != 0
         self.temperature=tau
         self.eps=eps
         self._srng = RandomStreams(lasagne.random.get_rng().randint(1, 2147462579))
 
     def __call__(self, logits):
-        #sample from Gumbel(0, 1)
+        # sample from Gumbel(0, 1)
         uniform = self._srng.uniform(logits.shape,low=0,high=1)
         gumbel = -T.log(-T.log(uniform + self.eps) + self.eps)
 
-        #draw a sample from the Gumbel-Softmax distribution
+        # draw a sample from the Gumbel-Softmax distribution
         return T.nnet.softmax((logits + gumbel) / self.temperature)
 
 
