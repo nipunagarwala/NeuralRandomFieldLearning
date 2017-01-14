@@ -76,8 +76,8 @@ class ADGM_GSM(GSM):
     #   nonlinearity=relu_shift,
     # )
     # qz_net_sample = GaussianSampleLayer(qz_net_mu, qz_net_logsigma)
-    qz_net_sample = GumbelSoftmaxSampleLayer(reshape(qz_net_mu, (-1, n_class)), tau)
-    qz_net_mu = reshape(qz_net_mu, (-1, n_cat, n_class))
+    qz_net_mu = reshape(qz_net_mu, (-1, n_class))
+    qz_net_sample = GumbelSoftmaxSampleLayer(qz_net_mu, tau)
     qz_net_sample = reshape(qz_net_sample, (-1, n_cat, n_class))
 
     # create the decoder network
@@ -133,20 +133,19 @@ class ADGM_GSM(GSM):
     )
 
     # calculate the likelihoods
-    log_qa_given_x = log_normal2(qa_sample, qa_mu, qa_logsigma).sum(axis=1)
-    log_qz_given_ax = log_gumbel_softmax(qz_sample, qz_mu, tau=self.tau).sum(axis=1)
-    log_qza_given_x = log_qz_given_ax + log_qa_given_x
+    qz_given_ax = T.nnet.softmax(qz_mu)
+    log_qz_given_ax = T.log(qz_given_ax + 1e-20)
+    entropy = T.reshape(qz_given_ax * (log_qz_given_ax - T.log(1.0 / n_class)), (-1, n_cat, n_class))
+    entropy = T.sum(entropy, axis=[1,2])
 
-    pz_prior_mu = T.cast(T.ones_like(qz_sample) / n_class, dtype=theano.config.floatX)
-    log_pz = log_gumbel_softmax(qz_sample, pz_prior_mu, tau=self.tau).sum(axis=1)
     log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
     log_pa_given_z = log_normal2(qa_sample, pa_mu, pa_logsigma).sum(axis=1)
-    log_paxz = log_pa_given_z + log_px_given_z + log_pz
+    log_paxz = log_pa_given_z + log_px_given_z
 
     # logp(z)+logp(a|z)-logq(a)-logq(z|a)
-    elbo = T.mean(log_paxz - log_qza_given_x)
+    elbo = T.mean(log_paxz - entropy)
 
-    return -elbo, -T.mean(log_qz_given_ax)
+    return -elbo, -T.mean(entropy)
 
   def create_gradients(self, loss, deterministic=False):
     grads = GSM.create_gradients(self, loss, deterministic)

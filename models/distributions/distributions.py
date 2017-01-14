@@ -8,15 +8,15 @@ import theano.tensor as T
 c = - 0.5 * math.log(2*math.pi)
 
 
-def log_gumbel_softmax(x, mu, tau=1.0):
+def log_gumbel_softmax(x, mu, tau=1.0, eps=1e-6):
     """
     Compute logpdf of a Gumbel Softmax distribution with parameters p, at values x.
         .. See Appendix B.[1:2] https://arxiv.org/pdf/1611.01144v2.pdf
     """
     k = mu.shape[-1]
-    logpdf = T.gammaln(k) + (k-1)*T.log(tau) \
-        - k * T.log(T.sum(T.exp(x) / T.power(mu, tau), axis=2)) \
-        + T.sum(x - (tau+1)*T.log(mu), axis=2)
+    logpdf = T.gammaln(k) + (k - 1) * T.log(tau + eps) \
+        - k * T.log(T.sum(T.exp(x) / T.power(mu, tau), axis=2) + eps) \
+        + T.sum(x - (tau + 1) * T.log(mu + eps), axis=2)
     return logpdf
 
 
