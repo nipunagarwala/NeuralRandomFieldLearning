@@ -7,7 +7,6 @@ import theano.tensor as T
 
 c = - 0.5 * math.log(2*math.pi)
 
-
 def log_gumbel_softmax(x, mu, tau=1.0, eps=1e-6):
     """
     Compute logpdf of a Gumbel Softmax distribution with parameters p, at values x.

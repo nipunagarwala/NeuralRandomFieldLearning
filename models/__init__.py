@@ -1,4 +1,3 @@
-from softmax import Softmax
 from mlp import MLP
 from vae import VAE
 from sbn import SBN
