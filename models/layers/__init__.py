@@ -1,3 +1,7 @@
-from sampling import (GaussianSampleLayer,
-                      BernoulliSampleLayer,
-                      GumbelSoftmaxSampleLayer)
+from shape import RepeatLayer
+from sampling import (
+    GaussianSampleLayer,
+    GaussianMultiSampleLayer,
+    BernoulliSampleLayer,
+    GumbelSoftmaxSampleLayer,
+)
