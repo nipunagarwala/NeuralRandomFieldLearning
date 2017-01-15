@@ -36,9 +36,10 @@ class Model(object):
 
         # create input vars
         X = T.tensor4(dtype=theano.config.floatX)
+        S = T.tensor3(dtype=theano.config.floatX)
         Y = T.ivector()
         idx1, idx2 = T.lscalar(), T.lscalar()
-        self.inputs = (X, Y, idx1, idx2)
+        self.inputs = (X, Y, idx1, idx2, S)
 
         # create lasagne model
         self.network = self.create_model(X, Y, n_dim, n_out, n_chan)
@@ -51,6 +52,10 @@ class Model(object):
 
         # load params
         params = self.get_params()
+
+        # create hallucinations
+        sample = self.gen_samples(deterministic=False)
+        self.dream = theano.function([S], sample, on_unused_input='warn')
 
         # create gradients
         grads      = self.create_gradients(loss, deterministic=False)
@@ -135,6 +140,32 @@ class Model(object):
     def get_params(self):
         l_out = self.network
         return lasagne.layers.get_all_params(l_out, trainable=True)
+
+    def gen_samples(self, deterministic=False):
+        pass  # To be implemented by inherited models
+
+    def hallucinate(self):
+        """Generate new samples by passing noise into the decoder"""
+        # load network params
+        size = 100
+        n_class = self.n_class
+        n_dim = self.n_dim
+        img_size = np.sqrt(size)
+
+        # generate noisy inputs
+        noise = np.zeros((size, n_class))
+        noise[range(size), np.random.choice(n_class, size)] = 1
+
+        p_mu = self.dream(noise)
+        if p_mu is None: return None
+        p_mu = p_mu.reshape((img_size, img_size, n_dim, n_dim))
+        # split into img_size (1,img_size,n_dim,n_dim) images,
+        # concat along columns -> 1,img_size,n_dim,n_dim*img_size
+        p_mu = np.concatenate(np.split(p_mu, img_size, axis=0), axis=3)
+        # split into img_size (1,1,n_dim,n_dim*img_size) images,
+        # concat along rows -> 1,1,n_dim*img_size,n_dim*img_size
+        p_mu = np.concatenate(np.split(p_mu, img_size, axis=1), axis=2)
+        return np.squeeze(p_mu)
 
     def fit(self, X_train, Y_train, X_val, Y_val, n_epoch=10, n_batch=100, logname='run'):
         """Train the model"""
@@ -228,6 +259,3 @@ class Model(object):
                 inputs, targets = superbatch
                 self.load_data(inputs, targets, dest=datatype)
                 yield inputs, targets
-
-    def hallucinate(self):
-        pass  # To be implemented by inherited models

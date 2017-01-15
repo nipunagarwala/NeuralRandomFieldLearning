@@ -180,9 +180,10 @@ class GSM(Model):
     def gen_samples(self, deterministic=False):
         s = self.inputs[-1]
         # put it through the decoder
-        q_net_in, p_net_in = self.input_layers
-        q_net_mu, p_net_mu, q_net_sample = self.network
+        _, p_net_in = self.input_layers
+        _, p_net_mu, _ = self.network
         p_mu = get_output(p_net_mu, {p_net_in : s})
+        
         return p_mu
 
     def get_params(self):
@@ -208,13 +209,14 @@ class GSM(Model):
         noise = np.reshape(noise,[size, n_cat, n_class])
 
         p_mu = self.dream(noise)
+        if p_mu is None: return None
         p_mu = p_mu.reshape((img_size, img_size, n_dim, n_dim))
         # split into img_size (1,img_size,n_dim,n_dim) images,
         # concat along columns -> 1,img_size,n_dim,n_dim*img_size
         p_mu = np.concatenate(np.split(p_mu, img_size, axis=0), axis=3)
         # split into img_size (1,1,n_dim,n_dim*img_size) images,
         # concat along rows -> 1,1,n_dim*img_size,n_dim*img_size
-        p_mu = np.concatenate(np.split(p_mu,img_size,axis=1),axis=2)
+        p_mu = np.concatenate(np.split(p_mu, img_size, axis=1), axis=2)
         return np.squeeze(p_mu)
 
     def fit(

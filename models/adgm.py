@@ -69,8 +69,9 @@ class ADGM(Model):
         l_qa = GaussianSampleLayer(l_qa_mu, l_qa_logsigma)
 
         # create q(z|a,x)
+        l_qz_in = lasagne.layers.InputLayer((None, n_aux))
         l_qz_hid1a = lasagne.layers.DenseLayer(
-            l_qa, num_units=n_hid,
+            l_qz_in, num_units=n_hid,
             W=lasagne.init.GlorotNormal('relu'),
             b=lasagne.init.Normal(1e-3),
             nonlinearity=hid_nl,
@@ -103,8 +104,9 @@ class ADGM(Model):
 
         # create the decoder network
         # create p(x|z)
+        l_px_in = lasagne.layers.InputLayer((None, n_lat))
         l_px_hid = lasagne.layers.DenseLayer(
-            l_qz, num_units=n_hid,
+            l_px_in, num_units=n_hid,
             W=lasagne.init.GlorotNormal('relu'),
             b=lasagne.init.Normal(1e-3),
             nonlinearity=hid_nl,
@@ -112,7 +114,8 @@ class ADGM(Model):
         l_px_mu, l_px_logsigma = None, None
 
         if self.model == 'bernoulli':
-            l_px_mu = lasagne.layers.DenseLayer(l_px_hid, num_units=n_out,
+            l_px_mu = lasagne.layers.DenseLayer(
+                l_px_hid, num_units=n_out,
                 nonlinearity = lasagne.nonlinearities.sigmoid,
                 W=lasagne.init.GlorotUniform(),
                 b=lasagne.init.Normal(1e-3),
@@ -129,7 +132,7 @@ class ADGM(Model):
 
         # create p(a|z)
         l_pa_hid = lasagne.layers.DenseLayer(
-            l_qz, num_units=n_hid,
+            l_px_in, num_units=n_hid,
             nonlinearity=hid_nl,
             W=lasagne.init.GlorotNormal('relu'),
             b=lasagne.init.Normal(1e-3),
@@ -146,6 +149,8 @@ class ADGM(Model):
             b=lasagne.init.Normal(1e-3),
             nonlinearity=relu_shift,
         )
+
+        self.input_layers = (l_qa_in, l_qz_in, l_px_in)
 
         return l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
                l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
@@ -165,21 +170,33 @@ class ADGM(Model):
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
         l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
         l_qa, l_qz = self.network
+        l_qa_in, l_qz_in, l_px_in = self.input_layers
 
         # load network output
-        pa_mu, pa_logsigma, qz_mu, qz_logsigma, qa_mu, qa_logsigma, a, z \
-            = lasagne.layers.get_output(
-                [ l_pa_mu, l_pa_logsigma, l_qz_mu, l_qz_logsigma,
-                l_qa_mu, l_qa_logsigma, l_qa, l_qz ],
-                deterministic=deterministic,
-            )
+        qa_mu, qa_logsigma, a = lasagne.layers.get_output(
+            [l_qa_mu, l_qa_logsigma, l_qa],
+            deterministic=deterministic,
+        )
+        qz_mu, qz_logsigma, z = lasagne.layers.get_output(
+            [l_qz_mu, l_qz_logsigma, l_qz],
+            {l_qz_in : a, l_qa_in : X},
+            deterministic=deterministic,
+        )
+        pa_mu, pa_logsigma = lasagne.layers.get_output(
+            [l_pa_mu, l_pa_logsigma],
+            {l_px_in : z},
+            deterministic=deterministic,
+        )
 
         if self.model == 'bernoulli':
             px_mu = lasagne.layers.get_output(
-                l_px_mu, deterministic=deterministic)
+                l_px_mu, {l_px_in : z},
+                deterministic=deterministic
+            )
         elif self.model == 'gaussian':
-            px_mu, px_logsigma = lasagne.layers.get_output(
+            px_mu, px_logsigma  = lasagne.layers.get_output(
                 [l_px_mu, l_px_logsigma],
+                {l_px_in : z},
                 deterministic=deterministic,
             )
 
@@ -224,12 +241,22 @@ class ADGM(Model):
 
         return cgrads
 
-    def get_params(self):
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # put it through the decoder
+        _, _, l_px_in = self.input_layers
         l_px_mu = self.network[0]
-        l_pa_mu = self.network[2]
-        params  = lasagne.layers.get_all_params(l_px_mu, trainable=True)
-        params0 = lasagne.layers.get_all_params(l_pa_mu, trainable=True)
-        for param in params0:
-            if param not in params: params.append(param)
+        px_mu = lasagne.layers.get_output(l_px_mu, {l_px_in : s})
 
-        return params
+        return px_mu
+
+    def get_params(self):
+        l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
+        l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
+        l_qa, l_qz = self.network
+
+        p_params = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
+        qa_params = lasagne.layers.get_all_params(l_qa, trainable=True)
+        qz_params = lasagne.layers.get_all_params(l_qz, trainable=True)
+
+        return p_params + qa_params + qz_params

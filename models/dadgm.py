@@ -158,7 +158,7 @@ class DADGM(Model):
         v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
 
         # store certain input layers for downstream (quick hack)
-        self.input_layers = (l_qa_in, l_qz_in, l_px_in)
+        self.input_layers = (l_qa_in, l_qz_in, l_px_in, l_cv_in)
 
         return l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
                l_qa_mu, l_qa_logsigma, l_qz_mu, l_qz_logsigma, \
@@ -177,7 +177,7 @@ class DADGM(Model):
         # load networks
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
         l_qa_mu, l_qa_logsigma, l_qz_mu, l_qz_logsigma, l_qa, l_qz, _, _, _ = self.network
-        l_qa_in, l_qz_in, l_px_in = self.input_layers
+        l_qa_in, l_qz_in, l_px_in, l_cv_in = self.input_layers
 
         # load network output
         qa_mu, qa_logsigma, a = lasagne.layers.get_output(
@@ -304,24 +304,32 @@ class DADGM(Model):
 
         return cgrads
 
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # put it through the decoder
+        _, _, l_px_in, _ = self.input_layers
+        l_px_mu = self.network[0]
+        px_mu = lasagne.layers.get_output(l_px_mu, {l_px_in : s})
+
+        return px_mu
+
     def get_params(self):
         # load networks
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
-        l_qa_mu, l_qa_logsigma, l_qz_mu, l_qz_logsigma, l_qa, l_qz, l_cv, c, v = self.network
+        l_qa_mu, l_qa_logsigma, l_qz_mu, l_qz_logsigma, \
+        l_qa, l_qz, l_cv, c, v = self.network
 
         if self.model == 'gaussian':
             raise NotImplementedError('The code below needs to implement Gaussians')
 
         # load params
         p_params  = lasagne.layers.get_all_params(
-            # [l_px_mu], trainable=True)
             [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
         qa_params  = lasagne.layers.get_all_params(l_qa_mu, trainable=True)
         qz_params  = lasagne.layers.get_all_params(l_qz, trainable=True)
         cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
 
-        # return p_params + qa_params + qz_params + cv_params
-        return p_params + qa_params +qz_params #+ cv_params
+        return p_params + qa_params +qz_params # + cv_params
 
     def create_updates(self, grads, params, alpha, opt_alg, opt_params):
         # call super-class to generate SGD/ADAM updates

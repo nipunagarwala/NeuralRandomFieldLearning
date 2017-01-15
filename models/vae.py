@@ -9,7 +9,6 @@ import lasagne
 from model import Model
 from layers import GaussianSampleLayer
 
-# ----------------------------------------------------------------------------
 
 class VAE(Model):
     """Variational Autoencoder with Gaussian visible and latent variables"""
@@ -33,43 +32,42 @@ class VAE(Model):
         # create the encoder network
         l_q_in = lasagne.layers.InputLayer(
             shape=(None, n_chan, n_dim, n_dim),
-            input_var=X
+            input_var=X,
         )
         l_q_hid = lasagne.layers.DenseLayer(
             l_q_in, num_units=n_hid,
-            nonlinearity=hid_nl
+            nonlinearity=hid_nl,
         )
         l_q_mu = lasagne.layers.DenseLayer(
             l_q_hid, num_units=n_lat,
-            nonlinearity=None
+            nonlinearity=None,
         )
         l_q_logsigma = lasagne.layers.DenseLayer(
             l_q_hid, num_units=n_lat,
-            nonlinearity=None
+            nonlinearity=None,
         )
+        l_q = GaussianSampleLayer(l_q_mu, l_q_logsigma)
 
         # create the decoder network
-        l_p_z = GaussianSampleLayer(l_q_mu, l_q_logsigma)
-
+        l_p_in = lasagne.layers.InputLayer((None, n_lat))
         l_p_hid = lasagne.layers.DenseLayer(
-            l_p_z, num_units=n_hid,
+            l_p_in, num_units=n_hid,
             nonlinearity=hid_nl,
-            W=lasagne.init.GlorotUniform()
+            W=lasagne.init.GlorotUniform(),
         )
         l_p_mu, l_p_logsigma = None, None
 
         if self.model == 'bernoulli':
-            l_sample = lasagne.layers.DenseLayer(
+            l_p_mu = lasagne.layers.DenseLayer(
                 l_p_hid, num_units=n_out,
                 nonlinearity = lasagne.nonlinearities.sigmoid,
                 W=lasagne.init.GlorotUniform(),
-                b=lasagne.init.Constant(0.)
+                b=lasagne.init.Constant(0.),
             )
-
         elif self.model == 'gaussian':
             l_p_mu = lasagne.layers.DenseLayer(
                 l_p_hid, num_units=n_out,
-                nonlinearity=None
+                nonlinearity=None,
             )
 
             # relu_shift is for numerical stability - if training data has any
@@ -81,41 +79,67 @@ class VAE(Model):
                 l_p_hid, num_units=n_out,
                 nonlinearity = lambda a: T.nnet.relu(a+relu_shift)-relu_shift
             )
-            l_sample = GaussianSampleLayer(l_p_mu, l_p_logsigma)
 
-        return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_sample
+        self.input_layers = (l_q_in, l_p_in)
+
+        return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q
 
     def create_objectives(self, deterministic=False):
         # load network input
         X = self.inputs[0]
+        x = X.flatten(2)
+
+        l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q = self.network
+        l_q_in, l_p_in = self.input_layers
 
         # load network output
+        q_mu, q_logsigma, q_sample = lasagne.layers.get_output(
+            [l_q_mu, l_q_logsigma, l_q],
+            deterministic=deterministic,
+        )
         if self.model == 'bernoulli':
-            q_mu, q_logsigma, sample = lasagne.layers.get_output(
-                self.network[2:], deterministic=deterministic)
+            p_mu = lasagne.layers.get_output(
+                l_p_mu, {l_p_in : q_sample},
+                deterministic=deterministic,
+            )
         elif self.model == 'gaussian':
-            p_mu, p_logsigma, q_mu, q_logsigma, _ = lasagne.layers.get_output(
-                self.network, deterministic=deterministic)
+            p_mu, p_logsigma = lasagne.layers.get_output(
+                [l_p_mu, l_p_logsigma],
+                {l_p_in : q_sample},
+                deterministic=deterministic,
+            )
 
         # first term of the ELBO: kl-divergence (using the closed form expression)
-        kl_div = 0.5 * T.sum(1 + 2*q_logsigma - T.sqr(q_mu)
+        kl_div = 0.5 * T.sum(1 + 2 * q_logsigma - T.sqr(q_mu)
                              - T.exp(2 * q_logsigma), axis=1).mean()
 
         # second term: log-likelihood of the data under the model
         if self.model == 'bernoulli':
             logpxz = -lasagne.objectives.binary_crossentropy(
-                sample, X.flatten(2)
+                p_mu, x,
             ).sum(axis=1).mean()
         elif self.model == 'gaussian':
             def log_lik(x, mu, log_sig):
                 return T.sum(-(np.float32(0.5 * np.log(2 * np.pi)) + log_sig)
                              - 0.5 * T.sqr(x - mu) / T.exp(2 * log_sig), axis=1)
-            logpxz = log_lik(X.flatten(2), p_mu, p_logsigma).mean()
+            logpxz = log_lik(x, p_mu, p_logsigma).mean()
 
         loss = -1 * (logpxz + kl_div)
         # we don't use the spearate accuracy metric right now
         return loss, -kl_div
 
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # put it through the decoder
+        _, l_p_in = self.input_layers
+        l_p_mu = self.network[0]
+        p_mu = lasagne.layers.get_output(l_p_mu, {l_p_in : s})
+
+        return p_mu
+
     def get_params(self):
-        _, _, _, _, l_sample = self.network
-        return lasagne.layers.get_all_params(l_sample, trainable=True)
+        l_p_mu, _, _, _ l_q = self.network
+        p_params = lasagne.layers.get_all_params(l_p_mu, trainable=True)
+        q_params = lasagne.layers.get_all_params(l_q, trainable=True)
+
+        return p_params + q_params

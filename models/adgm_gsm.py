@@ -56,8 +56,9 @@ class ADGM_GSM(GSM):
         )
         qa_net_sample = GaussianSampleLayer(qa_net_mu, qa_net_logsigma)
         # - create q(z|a, x)
+        qz_net_in = lasagne.layers.InputLayer((None, n_aux))
         qz_net_a = DenseLayer(
-            qa_net_sample, num_units=n_hid,
+            qz_net_in, num_units=n_hid,
             nonlinearity=hid_nl,
         )
         qz_net_b = DenseLayer(
@@ -86,8 +87,9 @@ class ADGM_GSM(GSM):
 
         # create the decoder network
         # - create p(x|z)
+        px_net_in = lasagne.layers.InputLayer((None, n_cat, n_class))
         px_net = DenseLayer(
-            flatten(qz_net_sample), num_units=n_hid,
+            flatten(px_net_in), num_units=n_hid,
             nonlinearity=hid_nl,
         )
         px_net_mu = DenseLayer(
@@ -97,7 +99,7 @@ class ADGM_GSM(GSM):
 
         # - create p(a|z)
         pa_net = DenseLayer(
-            flatten(qz_net_sample), num_units=n_hid,
+            flatten(px_net_in), num_units=n_hid,
             W=GlorotNormal('relu'), b=Normal(1e-3),
             nonlinearity=hid_nl,
         )
@@ -118,6 +120,8 @@ class ADGM_GSM(GSM):
         self.n_class = n_class
         self.n_cat = n_cat
 
+        self.input_layers = (qa_net_in, qz_net_in, px_net_in)
+
         return px_net_mu, pa_net_mu, pa_net_logsigma, \
             qz_net_mu, qa_net_mu, qa_net_logsigma, \
             qz_net_sample, qa_net_sample,
@@ -130,9 +134,28 @@ class ADGM_GSM(GSM):
         n_cat = self.n_cat
 
         # compute network
-        px_mu, pa_mu, pa_logsigma, qz_mu, \
-        qa_mu, qa_logsigma, qz_sample, qa_sample = get_output(
-            self.network,
+        px_net_mu, pa_net_mu, pa_net_logsigma, \
+        qz_net_mu, qa_net_mu, qa_net_logsigma, \
+        qz_net_sample, qa_net_sample = self.network
+        qa_net_in, qz_net_in, px_net_in = self.input_layers
+
+        qa_mu, qa_logsigma, qa_sample = get_output(
+            [qa_net_mu, qa_net_logsigma, qa_net_sample],
+            deterministic=deterministic,
+        )
+        qz_mu, qz_sample = get_output(
+            [qz_net_mu, qz_net_sample],
+            {qz_net_in : qa_sample, qa_net_in : x},
+            deterministic=deterministic,
+        )
+        pa_mu, pa_logsigma = get_output(
+            [pa_net_mu, pa_net_logsigma],
+            {px_net_in : qz_sample},
+            deterministic=deterministic,
+        )
+        px_mu = get_output(
+            px_net_mu,
+            {px_net_in : qz_sample},
             deterministic=deterministic,
         )
 
@@ -161,13 +184,27 @@ class ADGM_GSM(GSM):
 
         return cgrads
 
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # pass through decoder
+        _, _, px_net_in = self.input_layers
+        px_net_mu, _, _, _, _, _, _, _ = self.network
+
+        px_mu = get_output(
+            px_net_mu,
+            {px_net_in : s},
+            deterministic=deterministic,
+        )
+
+        return px_mu
+
     def get_params(self):
-        px_net_mu, pa_net_mu = self.network[:2]
-        params = get_all_params(px_net_mu, trainable=True)
-        params0 = get_all_params(pa_net_mu, trainable=True)
+        px_net_mu, pa_net_mu, pa_net_logsigma, \
+        qz_net_mu, qa_net_mu, qa_net_logsigma, \
+        qz_net_sample, qa_net_sample = self.network
 
-        for param in params0:
-            if param not in params:
-                params.append(param)
+        p_params = get_all_params([px_net_mu, pa_net_mu, pa_net_logsigma], trainable=True)
+        qa_params = get_all_params(qa_net_sample, trainable=True)
+        qz_params = get_all_params(qz_net_sample, trainable=True)
 
-        return params
+        return p_params + qa_params + qz_params

@@ -21,7 +21,7 @@ class SBN(Model):
             training loss/acc:        125.989901  107.652437
             validation loss/acc:      126.220432  108.006230
     """
-    
+
     def create_model(self, X, Y, n_dim, n_out, n_chan=1):
         # params
         n_lat    = 200 # latent stochastic variables
@@ -80,6 +80,8 @@ class SBN(Model):
         # create variables for centering signal
         c = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
         v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
+
+        self.input_layers = (l_q_in, l_p_in, l_cv_in)
 
         return l_p_mu, l_q_mu, l_q_sample, l_cv, c, v
 
@@ -163,6 +165,15 @@ class SBN(Model):
         cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
 
         return cgrads
+
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # put it through the decoder
+        _, l_p_in, _ = self.input_layers
+        l_p_mu = self.network[0]
+        p_mu = lasagne.layers.get_output(l_p_mu, {l_p_in : s})
+
+        return p_mu
 
     def get_params(self):
         l_p_mu, l_q_mu, _, l_cv, _, _ = self.network
