@@ -68,7 +68,7 @@ class Model(object):
         )
         self.loss = theano.function([X, Y], [loss, acc], on_unused_input='warn')
 
-        # # TODO: implement a create_predictions method
+        # TODO: implement a create_predictions method
         # self.predict = theano.function([X], P)
 
         # save config
@@ -228,3 +228,6 @@ class Model(object):
                 inputs, targets = superbatch
                 self.load_data(inputs, targets, dest=datatype)
                 yield inputs, targets
+
+    def hallucinate(self):
+        pass  # To be implemented by inherited models

@@ -1,5 +1,7 @@
+import pdb
 import argparse
 from util import data
+import matplotlib.pyplot as plt
 
 # ----------------------------------------------------------------------------
 
@@ -15,6 +17,7 @@ def make_parser():
     train_parser.add_argument('--model', default='vae')
     train_parser.add_argument('-e', '--epochs', type=int, default=10)
     train_parser.add_argument('-l', '--logname', default='mnist-run')
+    train_parser.add_argument('-p', '--plotname', default='mnist-plot.png')
     train_parser.add_argument('--alg', default='adam')
     train_parser.add_argument('--lr', type=float, default=1e-3)
     train_parser.add_argument('--b1', type=float, default=0.9)
@@ -111,6 +114,16 @@ def train(args):
         n_epoch=args.epochs, n_batch=args.n_batch,
         logname=args.logname
     )
+
+    # generate samples
+    samples = model.hallucinate()
+
+    # plot them
+    plt.figure(figsize=(5, 5))
+    plt.imshow(samples, cmap=plt.cm.gray, interpolation='none')
+    plt.title('Hallucinated Samples')
+    plt.tight_layout()
+    plt.savefig(args.plotname)
 
 
 def main():

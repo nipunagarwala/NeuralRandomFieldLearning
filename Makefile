@@ -6,7 +6,7 @@ NAME=experiment
 
 LOGFOLDER=log
 DATASET=mnist
-MODEL=adgm
+MODEL=gsm
 ALG=adam
 
 LR=1e-3
@@ -22,7 +22,8 @@ train:
 	  --dataset $(DATASET) \
 	  --model $(MODEL) \
 	  -e $(EPOCHS) \
-	  -l $(LOGFOLDER)/$(DATASET).$(MODEL).$(ALG).$(LR).$(NB).$(NAME) \
+	  --logname $(LOGFOLDER)/$(DATASET).$(MODEL).$(ALG).$(LR).$(NB).$(NAME) \
+		--plotname $(LOGFOLDER)/$(DATASET)_$(MODEL)_$(ALG)_$(LR)_$(NB)_$(NAME).png \
 	  --alg $(ALG) \
 	  --lr $(LR) \
 	  --b1 $(B1) \

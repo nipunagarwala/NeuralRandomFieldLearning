@@ -21,8 +21,8 @@ class ADGM_GSM(GSM):
     https://arxiv.org/pdf/1611.01144v2.pdf
 
     Epoch 196 of 200 took 71.449s (192 minibatches)
-          training loss/acc:		68.463976	-21.743954
-          validation loss/acc:		70.561101	-21.519407
+        training loss/acc:		68.463976	-21.743954
+        validation loss/acc:	70.561101	-21.519407
     """
     def create_model(self, x, y, n_dim, n_out, n_chan=1):
         n_class = 10  # number of classes

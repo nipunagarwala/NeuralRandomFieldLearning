@@ -1,3 +1,4 @@
+import pdb
 import time
 import pickle
 import numpy as np
@@ -64,9 +65,10 @@ class GSM(Model):
 
         # create input vars
         x = T.matrix(dtype=theano.config.floatX)
+        s = T.tensor3(dtype=theano.config.floatX)
         y = T.ivector()
         idx1, idx2 = T.lscalar(), T.lscalar()
-        self.inputs = (x, y, idx1, idx2)
+        self.inputs = (x, y, idx1, idx2, s)
 
         # create lasagne model
         self.network = self.create_model(x, y, n_dim, n_out, n_chan)
@@ -74,6 +76,10 @@ class GSM(Model):
         # create objectives
         loss, acc = self.create_objectives(deterministic=False)
         self.objectives = (loss, acc)
+
+        # create hallucinations
+        sample = self.gen_samples(deterministic=False)
+        self.dream = theano.function([s], sample, on_unused_input='warn')
 
         # create gradients
         grads = self.create_gradients(loss, deterministic=False)
@@ -100,6 +106,7 @@ class GSM(Model):
         # save config
         self.n_dim = n_dim
         self.n_out = n_out
+        self.n_chan = n_chan
         self.n_superbatch = n_superbatch
         self.alg = opt_alg
 
@@ -117,30 +124,33 @@ class GSM(Model):
 
     def create_model(self, x, y, n_dim, n_out, n_chan=1):
         n_class = 10  # number of classes
-        n_cat   = 30  # number of categorical distributions
-        n_out   = n_dim * n_dim * n_chan
-        n_in    = n_out
-        tau     = self.tau
+        n_cat = 30  # number of categorical distributions
+        n_out = n_dim * n_dim * n_chan
+        n_in = n_out
+        tau = self.tau
 
         # create the encoder network
-        net = InputLayer(shape=(None, n_in), input_var=x)
-        net = DenseLayer(net, num_units=512, nonlinearity=T.nnet.relu)
-        net = DenseLayer(net, num_units=256, nonlinearity=T.nnet.relu)
+        q_net_in = InputLayer(shape=(None, n_in), input_var=x)
+        q_net = DenseLayer(q_net_in, num_units=512, nonlinearity=T.nnet.relu)
+        q_net = DenseLayer(q_net, num_units=256, nonlinearity=T.nnet.relu)
         # sample from Gumble-Softmax posterior
-        logits_y = DenseLayer(net, n_cat*n_class, nonlinearity=None)
-        logits_y = reshape(logits_y, (-1, n_class))
-        y = GumbelSoftmaxSampleLayer(logits_y, tau)
-        y = reshape(y, (-1, n_cat, n_class))
+        q_net_mu = DenseLayer(q_net, n_cat*n_class, nonlinearity=None)
+        q_net_mu = reshape(q_net_mu, (-1, n_class))
+        q_net_sample = GumbelSoftmaxSampleLayer(q_net_mu, tau)
+        q_net_sample = reshape(q_net_sample, (-1, n_cat, n_class))
         # create the decoder network
-        net = DenseLayer(flatten(y), 256, nonlinearity=T.nnet.relu)
-        net = DenseLayer(net, 512, nonlinearity=T.nnet.relu)
-        logits_x = DenseLayer(net, n_out, nonlinearity=T.nnet.sigmoid)
+        p_net_in = InputLayer(shape=(None, n_cat, n_class))
+        p_net = DenseLayer(flatten(p_net_in), 256, nonlinearity=T.nnet.relu)
+        p_net = DenseLayer(p_net, 512, nonlinearity=T.nnet.relu)
+        p_net_mu = DenseLayer(p_net, n_out, nonlinearity=T.nnet.sigmoid)
 
         # save network params
         self.n_class = n_class
         self.n_cat = n_cat
 
-        return logits_y, logits_x
+        self.input_layers = (q_net_in, p_net_in)
+
+        return q_net_mu, p_net_mu, q_net_sample
 
     def create_objectives(self, deterministic=False):
         x = self.inputs[0]
@@ -150,24 +160,62 @@ class GSM(Model):
         n_cat = self.n_cat
 
         # load network output
-        logits_y, logits_x = self.network
-        _logits_y, _logits_x = lasagne.layers.get_output([logits_y, logits_x])
+        q_net_in, p_net_in = self.input_layers
+        q_net_mu, p_net_mu, q_net_sample = self.network
+        q_mu, q_sample = get_output([q_net_mu, q_net_sample])
+        p_mu = get_output(p_net_mu, {p_net_in : q_sample})
 
         # define the loss
-        q_y = T.nnet.softmax(_logits_y)
-        log_q_y = T.log(q_y + 1e-20)
-        log_p_x = log_bernoulli(x, _logits_x)
+        q_z = T.nnet.softmax(q_mu)
+        log_q_z = T.log(q_z + 1e-20)
+        log_p_x = log_bernoulli(x, p_mu)
 
-        kl_tmp = T.reshape(q_y * (log_q_y - T.log(1.0 / n_class)), [-1 , n_cat, n_class])
+        kl_tmp = T.reshape(q_z * (log_q_z - T.log(1.0 / n_class)), [-1 , n_cat, n_class])
         KL = T.sum(kl_tmp, axis=[1, 2])
         elbo = T.sum(log_p_x, axis=1) - KL
         loss = T.mean(-elbo)
 
         return loss, -T.mean(KL)
 
+    def gen_samples(self, deterministic=False):
+        s = self.inputs[-1]
+        # put it through the decoder
+        q_net_in, p_net_in = self.input_layers
+        q_net_mu, p_net_mu, q_net_sample = self.network
+        p_mu = get_output(p_net_mu, {p_net_in : s})
+        return p_mu
+
     def get_params(self):
-        _, logits_x = self.network
-        return get_all_params(logits_x)
+        q_net_mu, p_net_mu, _ = self.network
+        q_params = get_all_params(q_net_mu)
+        p_params = get_all_params(p_net_mu)
+
+        return p_params + q_params
+
+    def hallucinate(self):
+        """Generate new samples by passing noise into the decoder"""
+        # load network params
+        size = 100
+        n_cat = self.n_cat
+        n_class = self.n_class
+        n_dim = self.n_dim
+        n_mag = size * n_cat
+        img_size = np.sqrt(size)
+
+        # generate noisy inputs
+        noise = np.zeros((n_mag, n_class))
+        noise[range(n_mag), np.random.choice(n_class, n_mag)] = 1
+        noise = np.reshape(noise,[size, n_cat, n_class])
+
+        p_mu = self.dream(noise)
+        p_mu = p_mu.reshape((img_size, img_size, n_dim, n_dim))
+        # split into img_size (1,img_size,n_dim,n_dim) images,
+        # concat along columns -> 1,img_size,n_dim,n_dim*img_size
+        p_mu = np.concatenate(np.split(p_mu, img_size, axis=0), axis=3)
+        # split into img_size (1,1,n_dim,n_dim*img_size) images,
+        # concat along rows -> 1,1,n_dim*img_size,n_dim*img_size
+        p_mu = np.concatenate(np.split(p_mu,img_size,axis=1),axis=2)
+        return np.squeeze(p_mu)
 
     def fit(
         self, X_train, Y_train, X_val, Y_val,
