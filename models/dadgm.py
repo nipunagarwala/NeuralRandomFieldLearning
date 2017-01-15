@@ -9,12 +9,14 @@ import lasagne
 from theano.gradient import disconnected_grad as dg
 
 from model import Model
-from layers import GaussianSampleLayer, BernoulliSampleLayer
+from layers.shape import RepeatLayer
+from layers import (
+    GaussianSampleLayer,
+    BernoulliSampleLayer,
+    GaussianMultiSampleLayer,
+)
 from distributions import log_bernoulli, log_normal2
 
-theano.config.optimizer = 'None'
-
-# ----------------------------------------------------------------------------
 
 class DADGM(Model):
     """Auxiliary Deep Generative Model (unsupervised version) with discrete z"""
@@ -24,20 +26,21 @@ class DADGM(Model):
     ):
         # save model that wil be created
         self.model = model
+        self.n_sample = 1 # adjustable parameter, though 1 works best in practice
         Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
 
     def create_model(self, X, Y, n_dim, n_out, n_chan=1):
         # params
-        n_lat = 200 # latent stochastic variables
+        n_lat = 200  # latent stochastic variables
         n_aux = 10  # auxiliary variables
-        n_hid = 500 # size of hidden layer in encoder/decoder
-        n_hid_cv = 500 # size of hidden layer in control variate net
+        n_hid = 500  # size of hidden layer in encoder/decoder
+        n_sam = self.n_sample  # number of monte-carlo samples
+        n_hid_cv = 500  # size of hidden layer in control variate net
         n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
         hid_nl = lasagne.nonlinearities.tanh
         relu_shift = lambda av: T.nnet.relu(av+10)-10 # for numerical stability
 
         # create the encoder network
-
         # create q(a|x)
         l_qa_in = lasagne.layers.InputLayer(
             shape=(None, n_chan, n_dim, n_dim),
@@ -55,6 +58,15 @@ class DADGM(Model):
             l_qa_in, num_units=n_aux,
             nonlinearity=relu_shift,
         )
+        # repeatedly sample
+        l_qa_mu = lasagne.layers.ReshapeLayer(
+            RepeatLayer(l_qa_mu, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_aux),
+        )
+        l_qa_logsigma = lasagne.layers.ReshapeLayer(
+            RepeatLayer(l_qa_logsigma, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_aux),
+        )
         l_qa = GaussianSampleLayer(l_qa_mu, l_qa_logsigma)
 
         # create q(z|a,x)
@@ -66,6 +78,10 @@ class DADGM(Model):
         l_qz_hid1b = lasagne.layers.DenseLayer(
             l_qa_in, num_units=n_hid,
             nonlinearity=hid_nl,
+        )
+        l_qz_hid1b = lasagne.layers.ReshapeLayer(
+            RepeatLayer(l_qz_hid1b, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_hid),
         )
         l_qz_hid2 = lasagne.layers.ElemwiseSumLayer([l_qz_hid1a, l_qz_hid1b])
         # l_qz_hid2 = lasagne.layers.ConcatLayer([l_qz_hid1a, l_qz_hid1b])
@@ -152,6 +168,11 @@ class DADGM(Model):
         # load network input
         X = self.inputs[0]
         x = X.flatten(2)
+
+        # duplicate entries to take into account multiple mc samples
+        n_sam = self.n_sample
+        n_out = x.shape[1]
+        x = x.dimshuffle(0,'x',1).repeat(n_sam, axis=1).reshape((-1, n_out))
 
         # load networks
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \

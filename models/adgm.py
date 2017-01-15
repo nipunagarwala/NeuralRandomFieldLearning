@@ -11,7 +11,6 @@ from layers import GaussianSampleLayer, GaussianMultiSampleLayer
 from layers.shape import RepeatLayer
 from distributions import log_bernoulli, log_normal, log_normal2
 
-# ----------------------------------------------------------------------------
 
 class ADGM(Model):
     """Auxiliary Deep Generative Model (unsupervised version)"""
@@ -26,7 +25,7 @@ class ADGM(Model):
 
     def create_model(self, X, Y, n_dim, n_out, n_chan=1):
         # params
-        n_lat = 200 # latent stochastic variables
+        n_lat = 200  # latent stochastic variables
         n_aux = 10  # auxiliary variables
         n_hid = 500  # size of hidden layer in encoder/decoder
         n_sam = self.n_sample  # number of monte-carlo samples
