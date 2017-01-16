@@ -138,7 +138,7 @@ class VAE(Model):
         return p_mu
 
     def get_params(self):
-        l_p_mu, _, _, _ l_q = self.network
+        l_p_mu, _, _, _,s l_q = self.network
         p_params = lasagne.layers.get_all_params(l_p_mu, trainable=True)
         q_params = lasagne.layers.get_all_params(l_q, trainable=True)
 
