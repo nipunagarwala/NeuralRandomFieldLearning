@@ -75,11 +75,6 @@ def train(args):
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
             n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
         )
-    elif args.model == 'sbn_gsm':
-        model = models.SBN_GSM(
-            n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
-        )
     elif args.model == 'adgm':
         model = models.ADGM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,

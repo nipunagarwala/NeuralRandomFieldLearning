@@ -7,7 +7,6 @@ from collections import OrderedDict
 import theano
 import theano.tensor as T
 from theano.tensor.shared_randomstreams import RandomStreams
-from theano.gradient import disconnected_grad as dg
 
 from model import Model
 from helpers import *
@@ -15,7 +14,7 @@ from helpers import *
 
 class RBM(Model):
     '''Restricted Boltzmann Machine
-    http://deeplearning.net/tutorial/rbm.html#equation-rbm_propup
+    RBM code adapted from http://deeplearning.net/tutorial/rbm.html
     '''
     def __init__(
         self, n_dim, n_out, n_chan=1, n_superbatch=12800, opt_alg='adam',

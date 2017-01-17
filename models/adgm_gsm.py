@@ -1,4 +1,3 @@
-
 import numpy as np
 import theano.tensor as T
 from lasagne.layers import (
@@ -12,7 +11,7 @@ from distributions import log_bernoulli, log_normal2, log_gumbel_softmax
 from gsm import GSM
 
 import theano, lasagne
-theano.config.optimizer = 'None'
+
 
 class ADGM_GSM(GSM):
     """Auxiliary Deep Generative Model trained
@@ -20,9 +19,9 @@ class ADGM_GSM(GSM):
     https://arxiv.org/pdf/1602.05473v4.pdf
     https://arxiv.org/pdf/1611.01144v2.pdf
 
-    Epoch 196 of 200 took 71.449s (192 minibatches)
-        training loss/acc:		68.463976	-21.743954
-        validation loss/acc:	70.561101	-21.519407
+    Epoch 200 of 200 took 67.685s (192 minibatches)
+        training loss/acc:		56.513651	-21.471892
+        validation loss/acc:	59.014807	-21.233923
     """
     def create_model(self, x, y, n_dim, n_out, n_chan=1):
         n_class = 10  # number of classes
@@ -188,7 +187,7 @@ class ADGM_GSM(GSM):
         s = self.inputs[-1]
         # pass through decoder
         _, _, px_net_in = self.input_layers
-        px_net_mu, _, _, _, _, _, _, _ = self.network
+        px_net_mu = self.network[0]
 
         px_mu = get_output(
             px_net_mu,

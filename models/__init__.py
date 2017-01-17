@@ -1,7 +1,6 @@
 from mlp import MLP
 from vae import VAE
 from sbn import SBN
-from sbn_gsm import SBN_GSM
 from adgm import ADGM
 from dadgm import DADGM
 from adgm_gsm import ADGM_GSM
