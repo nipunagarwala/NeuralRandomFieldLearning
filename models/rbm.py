@@ -1,17 +1,13 @@
 import pdb
-import time, timeit
-import pickle
+import time
 import numpy as np
-from collections import OrderedDict
-
 import theano
 import theano.tensor as T
 from theano.tensor.shared_randomstreams import RandomStreams
 
 from model import Model
-from helpers import *
+from helpers import iterate_minibatch_idx, evaluate, log_metrics
 
-theano.config.optmizer = 'None'
 
 class RBM(Model):
     """Restricted Boltzmann Machine
@@ -36,6 +32,12 @@ class RBM(Model):
         """
         self.numpy_rng = np.random.RandomState(1234)
         self.theano_rng = RandomStreams(self.numpy_rng.randint(2 ** 30))
+
+        # save config
+        self.n_dim = n_dim
+        self.n_out = n_out
+        self.n_superbatch = n_superbatch
+        self.alg = opt_alg
 
         # extract training params
         lr = opt_params.get('lr')
@@ -74,7 +76,7 @@ class RBM(Model):
         S = T.tensor3(dtype=theano.config.floatX)
         Y = T.ivector()
         idx1, idx2 = T.lscalar(), T.lscalar()
-        alpha = T.scalar(dtype=theano.config.floatX)  # adjustable learning rate
+        alpha = T.scalar(dtype=theano.config.floatX)  # learning rate
         self.inputs = (X, Y, idx1, idx2, S)
 
         # create model
@@ -91,7 +93,7 @@ class RBM(Model):
 
         # get the cost and the gradient corresponding to one step of CD-15
         cost, acc, updates = self.get_cost_updates(
-            X, alpha, lr=lr, persistent=persistent_chain,
+            alpha, lr=lr, persistent=persistent_chain,
         )
         self.objectives = (cost, acc)
 
@@ -99,18 +101,16 @@ class RBM(Model):
             [idx1, idx2, alpha],
             [cost, acc],
             updates=updates,
-            givens={X : train_set_x[idx1:idx2], Y : train_set_y_int[idx1:idx2]},
+            givens={
+                X: train_set_x[idx1:idx2],
+                Y: train_set_y_int[idx1:idx2]
+            },
             on_unused_input='warn',
         )
 
         self.n_batch = n_batch
-        self.loss = theano.function([X, Y], [cost, acc], on_unused_input='warn')
-
-        # save config
-        self.n_dim = n_dim
-        self.n_out = n_out
-        self.n_superbatch = n_superbatch
-        self.alg = opt_alg
+        # parameters for sampling
+        self.n_chain = 100
 
         # save data variables
         self.train_set_x = train_set_x
@@ -125,8 +125,8 @@ class RBM(Model):
 
     def create_model(self, n_dim, n_out, n_chan=1):
         n_visible = n_chan*n_dim*n_dim  # size of visible layer
-        n_hidden  = 500  # size of hidden layer
-        k_steps   = 15  # number of steps during CD/PCD
+        n_hidden = 500  # size of hidden layer
+        k_steps = 15  # number of steps during CD/PCD
 
         # W is initialized with `initial_W` which is uniformely
         # sampled from -4*sqrt(6./(n_visible+n_hidden)) and
@@ -261,7 +261,7 @@ class RBM(Model):
     def get_params(self):
         return self.params
 
-    def get_cost_updates(self, X, alpha, lr=0.1, persistent=None):
+    def get_cost_updates(self, alpha, lr=0.1, persistent=None):
         """Returns the updates dictionary.
         The dictionary contains the update rules
         for weights and biases but also an update of the shared variable used to
@@ -277,18 +277,17 @@ class RBM(Model):
         also an update of the shared variable used to store the persistent
         chain, if one is used.
         """
-        x = X.flatten(2)
+        X = self.inputs[0]
+        x = X.reshape((-1, self.n_visible))
 
         # compute positive phase
         pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(x)
 
-        # decide how to initialize persistent chain:
-        # for CD, we use the newly generate hidden sample
         # for PCD, we initialize from the old state of the chain
-        chain_start = ph_sample if persistent is None else persistent
+        chain_start = persistent
 
         # perform actual negative phase
-        # in order to implement CD-k/PCD-k we need to scan over the
+        # in order to implementPCD-k we need to scan over the
         # function that implements one gibbs step k times.
         # Read Theano tutorial on scan for more information :
         # http://deeplearning.net/software/theano/library/scan.html
@@ -317,25 +316,21 @@ class RBM(Model):
         # note that we only need the sample at the end of the chain
         chain_end = nv_samples[-1]
 
-        cost = T.mean(self.free_energy(x)) - T.mean(self.free_energy(chain_end))
+        cost = T.mean(self.free_energy(x))-T.mean(self.free_energy(chain_end))
         # We must not compute the gradient through the gibbs sampling
+        params = self.get_params()
         gparams = T.grad(cost, self.params, consider_constant=[chain_end])
         gparams = [grad * alpha for grad in gparams]
 
         # constructs the update dictionary
-        for gparam, param in zip(gparams, self.params):
+        for gparam, param in zip(gparams, params):
             # make sure that the learning rate is of the right dtype
             updates[param] = param - gparam * T.cast(lr, dtype=theano.config.floatX)
 
-        if persistent:
-            # Note that this works only if persistent is a shared variable
-            updates[persistent] = nh_samples[-1]
-            # pseudo-likelihood is a better proxy for PCD
-            monitoring_cost = self.get_pseudo_likelihood_cost(x, updates)
-        else:
-            # reconstruction cross-entropy is a better proxy for CD
-            monitoring_cost = self.get_reconstruction_cost(
-                x, updates, pre_sigmoid_nvs[-1])
+        # Note that this works only if persistent is a shared variable
+        updates[persistent] = nh_samples[-1]
+        # pseudo-likelihood is a better proxy for PCD
+        monitoring_cost = self.get_pseudo_likelihood_cost(x, updates)
 
         # TODO fill in real accuracies
         return monitoring_cost, monitoring_cost, updates
@@ -360,56 +355,18 @@ class RBM(Model):
         fe_xi_flip = self.free_energy(xi_flip)
 
         # equivalent to e^(-FE(x_i)) / (e^(-FE(x_i)) + e^(-FE(x_{\i})))
-        cost = T.mean(self.n_visible * T.log(T.nnet.sigmoid(fe_xi_flip - fe_xi)))
+        cost = T.mean(self.n_visible * T.log(T.nnet.sigmoid(fe_xi_flip-fe_xi)))
 
         # increment bit_i_idx % number as part of updates
         updates[bit_i_idx] = (bit_i_idx + 1) % self.n_visible
 
         return cost
 
-    def get_reconstruction_cost(self, X, updates, pre_sigmoid_nv):
-        """
-        Approximation to the reconstruction error
-
-        Note that this function requires the pre-sigmoid activation as
-        input.  To understand why this is so you need to understand a
-        bit about how Theano works. Whenever you compile a Theano
-        function, the computational graph that you pass as input gets
-        optimized for speed and stability.  This is done by changing
-        several parts of the subgraphs with others.  One such
-        optimization expresses terms of the form log(sigmoid(x)) in
-        terms of softplus.  We need this optimization for the
-        cross-entropy since sigmoid of numbers larger than 30. (or
-        even less then that) turn to 1. and numbers smaller than
-        -30. turn to 0 which in terms will force theano to compute
-        log(0) and therefore we will get either -inf or NaN as
-        cost. If the value is expressed in terms of softplus we do not
-        get this undesirable behaviour. This optimization usually
-        works fine, but here we have a special case. The sigmoid is
-        applied inside the scan op, while the log is
-        outside. Therefore Theano will only see log(scan(..)) instead
-        of log(sigmoid(..)) and will not apply the wanted
-        optimization. We can not go and replace the sigmoid in scan
-        with something else also, because this only needs to be done
-        on the last step. Therefore the easiest and more efficient way
-        is to get also the pre-sigmoid activation as an output of
-        scan, and apply both the log and sigmoid outside scan such
-        that Theano can catch and optimize the expression.
-        """
-
-        cross_entropy = T.mean(
-            T.sum(
-                X * T.log(T.nnet.sigmoid(pre_sigmoid_nv)) +
-                (1 - X) * T.log(1 - T.nnet.sigmoid(pre_sigmoid_nv)),
-                axis=1
-            )
-        )
-
-        return cross_entropy
-
-    def fit(self, X_train, Y_train, X_val, Y_val, n_epoch=10, n_batch=100, logname='run'):
+    def fit(
+        self, X_train, Y_train, X_val, Y_val,
+        n_epoch=10, n_batch=100, logname='run'
+    ):
         """Train the model"""
-
         alpha = 1.0 # learning rate, which can be adjusted later
         n_data = len(X_train)
         n_superbatch = self.n_superbatch
@@ -433,21 +390,80 @@ class RBM(Model):
 
                     if train_batches % 100 == 0:
                         n_total = epoch * n_data + n_batch * train_batches
-                        metrics = [n_total, train_err / train_batches, train_acc / train_batches]
+                        metrics = [
+                            n_total, train_err / train_batches,
+                            train_acc / train_batches,
+                        ]
                         log_metrics(logname, metrics)
 
             print "Epoch {} of {} took {:.3f}s ({} minibatches)".format(
                 epoch + 1, n_epoch, time.time() - start_time, train_batches)
 
-            # make a full pass over the training data and record metrics:
-            train_err, train_acc = evaluate(self.loss, X_train, Y_train, batchsize=1000)
-            val_err, val_acc = evaluate(self.loss, X_val, Y_val, batchsize=1000)
+            print "  training loss/acc:\t\t{:.6f}\t{:.6f}".format(
+                train_err / train_batches, train_acc / train_batches)
 
-            print "  training loss/acc:\t\t{:.6f}\t{:.6f}".format(train_err, train_acc)
-            print "  validation loss/acc:\t\t{:.6f}\t{:.6f}".format(val_err, val_acc)
+        # reserve 20 of training data points to kick start hallucinations
+        hallu_i = self.numpy_rng.randint(n_data - self.n_chain)
+        self.hallu_set = np.asarray(
+            X_train[hallu_i:hallu_i + self.n_chain],
+            dtype=theano.config.floatX
+        )
 
-            metrics = [ epoch, train_err, train_acc, val_err, val_acc ]
-            log_metrics(logname + '.val', metrics)
+    def hallucinate(self):
+        """Once the RBM is trained, we can then use the gibbs_vhv function to
+        implement the Gibbs chain required for sampling. This overwrites the
+        hallucinate function in Model completely.
+        """
+        n_samples = 10
+        hallu_set = self.hallu_set.reshape((-1, self.n_visible))
+        persistent_vis_chain = theano.shared(hallu_set)
+        # define one step of Gibbs sampling (mf = mean-field) define a
+        # function that does `1000` steps before returning the
+        # sample for plotting
+        (
+            [
+                presig_hids,
+                hid_mfs,
+                hid_samples,
+                presig_vis,
+                vis_mfs,
+                vis_samples
+            ],
+            updates
+        ) = theano.scan(
+            self.gibbs_vhv,
+            outputs_info=[None, None, None, None, None, persistent_vis_chain],
+            n_steps=1000,
+            name="gibbs_vhv",
+        )
+
+        # add to updates that takes care of our persistent chain :
+        updates.update({persistent_vis_chain: vis_samples[-1]})
+        # construct the function that implements our persistent chain.
+        # we generate the "mean field" activations for plotting and the actual
+        # samples for reinitializing the state of our persistent chain
+        sample_fn = theano.function(
+            [],
+            [
+                vis_mfs[-1],
+                vis_samples[-1]
+            ],
+            updates=updates,
+            name='sample_fn',
+        )
+
+        for idx in range(n_samples):
+            # generate `plot_every` intermediate samples that we discard,
+            # because successive samples in the chain are too correlated
+            vis_mf, vis_sample = sample_fn()
+
+        img_size = np.sqrt(self.n_chain)
+        vis_mf = vis_mf.reshape((img_size, img_size, self.n_dim, self.n_dim))
+        vis_mf = np.concatenate(np.split(vis_mf, img_size, axis=0), axis=3)
+        # split into img_size (1,1,n_dim,n_dim*img_size) images,
+        # concat along rows -> 1,1,n_dim*img_size,n_dim*img_size
+        vis_mf = np.concatenate(np.split(vis_mf, img_size, axis=1), axis=2)
+        return np.squeeze(vis_mf)
 
     def load_params(self, params):
         """Load a given set of parameters"""

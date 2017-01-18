@@ -1,19 +1,19 @@
 PYTHON=/usr/bin/python27
 PYTHON=python
 
-EPOCHS=200
+EPOCHS=15
 NAME=experiment
 
 LOGFOLDER=log
 DATASET=mnist
-MODEL=vae
+MODEL=rbm
 ALG=adam
 
-LR=1e-3
+LR=.1
 B1=0.9
 B2=0.999
 SUPERBATCH=1024
-NB=256
+NB=20
 
 # ----------------------------------------------------------------------------
 
