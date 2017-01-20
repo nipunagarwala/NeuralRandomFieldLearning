@@ -81,6 +81,8 @@ class VAE(Model):
             )
 
         self.input_layers = (l_q_in, l_p_in)
+        self.n_lat = n_lat
+        self.n_hid = n_hid
 
         return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_q
 

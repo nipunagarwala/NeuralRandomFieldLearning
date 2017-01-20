@@ -82,6 +82,8 @@ class SBN(Model):
         v = theano.shared(np.zeros((1,1), dtype=np.float64), broadcastable=(True,True))
 
         self.input_layers = (l_q_in, l_p_in, l_cv_in)
+        self.n_lat = n_lat
+        self.n_hid = n_hid
 
         return l_p_mu, l_q_mu, l_q_sample, l_cv, c, v
 

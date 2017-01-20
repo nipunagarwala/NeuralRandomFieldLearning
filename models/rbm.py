@@ -13,8 +13,8 @@ class RBM(Model):
     """Restricted Boltzmann Machine
     RBM code adapted from http://deeplearning.net/tutorial/rbm.html
 
-    Epoch 15 of 15 took 168.265s (2500 minibatches)
-        training loss/acc:		-62.755739271	None
+    Epoch 15 of 15 took 635.792s (2448 minibatches)
+        training loss/acc:		-62.311016	-62.311016
 
     Training Params
     ---------------
@@ -402,7 +402,7 @@ class RBM(Model):
             print "  training loss/acc:\t\t{:.6f}\t{:.6f}".format(
                 train_err / train_batches, train_acc / train_batches)
 
-        # reserve 20 of training data points to kick start hallucinations
+        # reserve N of training data points to kick start hallucinations
         hallu_i = self.numpy_rng.randint(n_data - self.n_chain)
         self.hallu_set = np.asarray(
             X_train[hallu_i:hallu_i + self.n_chain],

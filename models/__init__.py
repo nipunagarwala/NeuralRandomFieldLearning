@@ -3,7 +3,7 @@ from vae import VAE
 from sbn import SBN
 from adgm import ADGM
 from dadgm import DADGM
-from adgm_gsm import ADGM_GSM
+from dadgm_gsm import DADGM_GSM
 from vae_reinforce import VAE_REINFORCE
 from gsm import GSM
 from rbm import RBM

@@ -13,8 +13,8 @@ from gsm import GSM
 import theano, lasagne
 
 
-class ADGM_GSM(GSM):
-    """Auxiliary Deep Generative Model trained
+class DADGM_GSM(GSM):
+    """Discrete Auxiliary Deep Generative Model trained
     using Gumbel Softmax Reparametrization
     https://arxiv.org/pdf/1602.05473v4.pdf
     https://arxiv.org/pdf/1611.01144v2.pdf

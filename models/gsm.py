@@ -88,20 +88,25 @@ class GSM(Model):
         params = self.get_params()
 
         # create updates
-        alpha = T.scalar(dtype=theano.config.floatX)  # adjustable learning rate
-        updates = self.create_updates(grads, params, alpha, opt_alg, opt_params)
+        alpha = T.scalar(dtype=theano.config.floatX)  # learning rate
+        updates = self.create_updates(
+            grads, params, alpha, opt_alg, opt_params,
+        )
 
         self.train = theano.function(
             [idx1, idx2, alpha], [loss, acc],
             updates=updates,
             givens={
-                x : train_set_x[idx1:idx2],
-                y : train_set_y_int[idx1:idx2]
+                x: train_set_x[idx1:idx2],
+                y: train_set_y_int[idx1:idx2]
             },
             on_unused_input='warn',
         )
 
-        self.loss = theano.function([x, y], [loss, acc], on_unused_input='warn')
+        self.loss = theano.function(
+            [x, y], [loss, acc],
+            on_unused_input='warn',
+        )
 
         # save config
         self.n_dim = n_dim
@@ -183,7 +188,7 @@ class GSM(Model):
         _, p_net_in = self.input_layers
         _, p_net_mu, _ = self.network
         p_mu = get_output(p_net_mu, {p_net_in : s})
-        
+
         return p_mu
 
     def get_params(self):

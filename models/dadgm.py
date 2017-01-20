@@ -159,6 +159,8 @@ class DADGM(Model):
 
         # store certain input layers for downstream (quick hack)
         self.input_layers = (l_qa_in, l_qz_in, l_px_in, l_cv_in)
+        self.n_lat = n_lat
+        self.n_hid = n_hid
 
         return l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
                l_qa_mu, l_qa_logsigma, l_qz_mu, l_qz_logsigma, \

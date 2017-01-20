@@ -1,4 +1,3 @@
-import pdb
 import time
 import pickle
 from collections import OrderedDict
@@ -8,13 +7,19 @@ import theano
 import theano.tensor as T
 import lasagne
 
-from helpers import *
+from helpers import (
+    iterate_minibatch_idx,
+    iterate_minibatches,
+    evaluate,
+    log_metrics,
+)
 
-# ----------------------------------------------------------------------------
 
 class Model(object):
     """Model superclass that includes training code"""
-    def __init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params):
+    def __init__(
+        self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params
+    ):
         # create shared data variables
         train_set_x = theano.shared(np.empty(
             (n_superbatch, n_chan, n_dim, n_dim),
@@ -32,11 +37,12 @@ class Model(object):
             (n_superbatch,), dtype=theano.config.floatX), borrow=False)
         val_set_y = theano.shared(np.empty(
             (n_superbatch,), dtype=theano.config.floatX), borrow=False)
-        train_set_y_int, val_set_y_int = T.cast(train_set_y, 'int32'), T.cast(val_set_y, 'int32')
+        train_set_y_int = T.cast(train_set_y, 'int32')
+        val_set_y_int = T.cast(val_set_y, 'int32')
 
         # create input vars
         X = T.tensor4(dtype=theano.config.floatX)
-        S = T.tensor3(dtype=theano.config.floatX)
+        S = T.matrix(dtype=theano.config.floatX)
         Y = T.ivector()
         idx1, idx2 = T.lscalar(), T.lscalar()
         self.inputs = (X, Y, idx1, idx2, S)
@@ -45,9 +51,9 @@ class Model(object):
         self.network = self.create_model(X, Y, n_dim, n_out, n_chan)
 
         # create objectives
-        loss, acc            = self.create_objectives(deterministic=False)
-        loss_test, acc_test  = self.create_objectives(deterministic=True)
-        self.objectives      = (loss, acc)
+        loss, acc = self.create_objectives(deterministic=False)
+        loss_test, acc_test = self.create_objectives(deterministic=True)
+        self.objectives = (loss, acc)
         self.objectives_test = (loss_test, acc_test)
 
         # load params
@@ -58,25 +64,31 @@ class Model(object):
         self.dream = theano.function([S], sample, on_unused_input='warn')
 
         # create gradients
-        grads      = self.create_gradients(loss, deterministic=False)
+        grads = self.create_gradients(loss, deterministic=False)
         grads_test = self.create_gradients(loss_test, deterministic=True)
 
         # create updates
-        alpha = T.scalar(dtype=theano.config.floatX) # adjustable learning rate
-        updates = self.create_updates(grads, params, alpha, opt_alg, opt_params)
+        alpha = T.scalar(dtype=theano.config.floatX)  # learning rate
+        updates = self.create_updates(
+            grads, params, alpha, opt_alg, opt_params
+        )
 
         # create methods for training / prediction
         self.train = theano.function(
             [idx1, idx2, alpha], [loss, acc], updates=updates,
-            givens={X : train_set_x[idx1:idx2], Y : train_set_y_int[idx1:idx2]},
+            givens={X: train_set_x[idx1:idx2], Y: train_set_y_int[idx1:idx2]},
             on_unused_input='warn'
         )
-        self.loss = theano.function([X, Y], [loss, acc], on_unused_input='warn')
+        self.loss = theano.function(
+            [X, Y], [loss, acc],
+            on_unused_input='warn',
+        )
 
         # TODO: implement a create_predictions method
         # self.predict = theano.function([X], P)
 
         # save config
+        self.n_class = 10
         self.n_dim = n_dim
         self.n_out = n_out
         self.n_superbatch = n_superbatch
@@ -114,9 +126,9 @@ class Model(object):
         acc_test = theano.tensor.eq(top_test, Y).mean()
 
         if deterministic:
-          return loss_test, acc_test
+            return loss_test, acc_test
         else:
-          return loss, acc
+            return loss, acc
 
     def create_gradients(self, loss, deterministic=False):
         params = self.get_params()
@@ -133,7 +145,7 @@ class Model(object):
             grad_updates = lasagne.updates.adam(
                 scaled_grads, params, learning_rate=lr, beta1=b1, beta2=b2)
         else:
-          grad_updates = OrderedDict()
+            grad_updates = OrderedDict()
 
         return grad_updates
 
@@ -148,16 +160,17 @@ class Model(object):
         """Generate new samples by passing noise into the decoder"""
         # load network params
         size = 100
-        n_class = self.n_class
+        n_lat = self.n_lat
         n_dim = self.n_dim
         img_size = np.sqrt(size)
 
         # generate noisy inputs
-        noise = np.zeros((size, n_class))
-        noise[range(size), np.random.choice(n_class, size)] = 1
+        noise = np.zeros((size, n_lat))
+        noise[range(size), np.random.choice(n_lat, size)] = 1
 
         p_mu = self.dream(noise)
-        if p_mu is None: return None
+        if p_mu is None:
+            return None
         p_mu = p_mu.reshape((img_size, img_size, n_dim, n_dim))
         # split into img_size (1,img_size,n_dim,n_dim) images,
         # concat along columns -> 1,img_size,n_dim,n_dim*img_size
@@ -167,10 +180,12 @@ class Model(object):
         p_mu = np.concatenate(np.split(p_mu, img_size, axis=1), axis=2)
         return np.squeeze(p_mu)
 
-    def fit(self, X_train, Y_train, X_val, Y_val, n_epoch=10, n_batch=100, logname='run'):
+    def fit(
+        self, X_train, Y_train, X_val, Y_val,
+        n_epoch=10, n_batch=100, logname='run',
+    ):
         """Train the model"""
-
-        alpha = 1.0 # learning rate, which can be adjusted later
+        alpha = 1.0  # learning rate, which can be adjusted later
         n_data = len(X_train)
         n_superbatch = self.n_superbatch
 
@@ -192,20 +207,32 @@ class Model(object):
                     train_acc += acc
                     if train_batches % 100 == 0:
                         n_total = epoch * n_data + n_batch * train_batches
-                        metrics = [n_total, train_err / train_batches, train_acc / train_batches]
+                        metrics = [
+                            n_total,
+                            train_err / train_batches,
+                            train_acc / train_batches,
+                        ]
                         log_metrics(logname, metrics)
 
             print "Epoch {} of {} took {:.3f}s ({} minibatches)".format(
                 epoch + 1, n_epoch, time.time() - start_time, train_batches)
 
             # make a full pass over the training data and record metrics:
-            train_err, train_acc = evaluate(self.loss, X_train, Y_train, batchsize=1000)
-            val_err, val_acc = evaluate(self.loss, X_val, Y_val, batchsize=1000)
+            train_err, train_acc = evaluate(
+                self.loss, X_train, Y_train, batchsize=1000,
+            )
+            val_err, val_acc = evaluate(
+                self.loss, X_val, Y_val, batchsize=1000,
+            )
 
-            print "  training loss/acc:\t\t{:.6f}\t{:.6f}".format(train_err, train_acc)
-            print "  validation loss/acc:\t\t{:.6f}\t{:.6f}".format(val_err, val_acc)
+            print "  training loss/acc:\t\t{:.6f}\t{:.6f}".format(
+                train_err, train_acc
+            )
+            print "  validation loss/acc:\t\t{:.6f}\t{:.6f}".format(
+                val_err, val_acc
+            )
 
-            metrics = [ epoch, train_err, train_acc, val_err, val_acc ]
+            metrics = [epoch, train_err, train_acc, val_err, val_acc]
             log_metrics(logname + '.val', metrics)
 
     def dump(self, fname):
@@ -214,7 +241,7 @@ class Model(object):
         with open(fname, 'w') as f:
             pickle.dump(params, f)
 
-    def load(self, params):
+    def load(self, fname):
         """Load pickled network"""
         with open(fname) as f:
             params = pickle.load(f)
@@ -255,7 +282,9 @@ class Model(object):
             yield X, Y
         else:
             # otherwise iterate over superbatches
-            for superbatch in iterate_minibatches(X, Y, batchsize, shuffle=shuffle):
+            for superbatch in iterate_minibatches(
+                X, Y, batchsize, shuffle=shuffle
+            ):
                 inputs, targets = superbatch
                 self.load_data(inputs, targets, dest=datatype)
                 yield inputs, targets
