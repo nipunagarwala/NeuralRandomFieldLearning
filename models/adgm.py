@@ -252,6 +252,10 @@ class ADGM(Model):
 
         return px_mu
 
+    def gen_noise(self, size, n_lat):
+        noise = np.random.rand(size, n_lat)
+        return noise
+
     def get_params(self):
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
         l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \

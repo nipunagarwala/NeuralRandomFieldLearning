@@ -156,18 +156,19 @@ class Model(object):
     def gen_samples(self, deterministic=False):
         pass  # To be implemented by inherited models
 
+    def gen_noise(self, size, n_lat):
+        noise = np.zeros((size, n_lat))
+        noise[range(size), np.random.choice(n_lat, size)] = 1
+        return noise
+
     def hallucinate(self):
         """Generate new samples by passing noise into the decoder"""
         # load network params
-        size = 100
-        n_lat = self.n_lat
-        n_dim = self.n_dim
+        size, n_lat, n_dim = 100, self.n_lat, self.n_dim
         img_size = np.sqrt(size)
 
         # generate noisy inputs
-        noise = np.zeros((size, n_lat))
-        noise[range(size), np.random.choice(n_lat, size)] = 1
-
+        noise = gen_noise(size, n_lat)
         p_mu = self.dream(noise)
         if p_mu is None:
             return None

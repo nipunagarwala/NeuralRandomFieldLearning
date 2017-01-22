@@ -202,15 +202,12 @@ class GSM(Model):
         """Generate new samples by passing noise into the decoder"""
         # load network params
         size = 100
-        n_cat = self.n_cat
-        n_class = self.n_class
-        n_dim = self.n_dim
+        n_cat, n_class, n_dim = self.n_cat, self.n_class, self.n_dim
         n_mag = size * n_cat
         img_size = np.sqrt(size)
 
         # generate noisy inputs
-        noise = np.zeros((n_mag, n_class))
-        noise[range(n_mag), np.random.choice(n_class, n_mag)] = 1
+        noise = self.gen_noise(n_mag, n_class)
         noise = np.reshape(noise,[size, n_cat, n_class])
 
         p_mu = self.dream(noise)

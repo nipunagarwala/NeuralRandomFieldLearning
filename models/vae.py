@@ -1,3 +1,4 @@
+import pdb
 import time
 import pickle
 import numpy as np
@@ -37,14 +38,17 @@ class VAE(Model):
         l_q_hid = lasagne.layers.DenseLayer(
             l_q_in, num_units=n_hid,
             nonlinearity=hid_nl,
+            name='q_hid',
         )
         l_q_mu = lasagne.layers.DenseLayer(
             l_q_hid, num_units=n_lat,
             nonlinearity=None,
+            name='q_mu',
         )
         l_q_logsigma = lasagne.layers.DenseLayer(
             l_q_hid, num_units=n_lat,
             nonlinearity=None,
+            name='q_logsigma',
         )
         l_q = GaussianSampleLayer(l_q_mu, l_q_logsigma)
 
@@ -54,6 +58,7 @@ class VAE(Model):
             l_p_in, num_units=n_hid,
             nonlinearity=hid_nl,
             W=lasagne.init.GlorotUniform(),
+            name='p_hid',
         )
         l_p_mu, l_p_logsigma = None, None
 
@@ -63,6 +68,7 @@ class VAE(Model):
                 nonlinearity = lasagne.nonlinearities.sigmoid,
                 W=lasagne.init.GlorotUniform(),
                 b=lasagne.init.Constant(0.),
+                name='p_sigma',
             )
         elif self.model == 'gaussian':
             l_p_mu = lasagne.layers.DenseLayer(
@@ -139,8 +145,15 @@ class VAE(Model):
 
         return p_mu
 
+    def gen_noise(self, size, n_lat):
+        noise = np.random.rand(size, n_lat)
+        return noise
+
     def get_params(self):
-        l_p_mu, _, _, _, l_q = self.network
+        if self.model == 'bernoulli':
+            l_p_mu, _, _, _, l_q = self.network
+        elif self.model == 'gaussian':
+            raise NotImplementedError()
         p_params = lasagne.layers.get_all_params(l_p_mu, trainable=True)
         q_params = lasagne.layers.get_all_params(l_q, trainable=True)
 
