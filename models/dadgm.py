@@ -260,7 +260,7 @@ class DADGM(Model):
         cv = T.addbroadcast(lasagne.layers.get_output(l_cv),1)
 
         # compute learning signals
-        l0 = log_px_given_z + log_pz - log_qz_given_x #- cv # NOTE: this disn't have q(a)
+        l0 = log_px_given_z + log_pz - log_qz_given_x - cv # NOTE: this disn't have q(a)
         l_avg, l_var = l0.mean(), l0.var()
         c_new = 0.8*c + 0.2*l_avg
         v_new = 0.8*v + 0.2*l_var
@@ -285,7 +285,6 @@ class DADGM(Model):
         # combine and clip gradients
         clip_grad = 1
         max_norm = 5
-
         grads = p_grads + qa_grads + qz_grads + cv_grads
         mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
         cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
@@ -340,6 +339,6 @@ class DADGM(Model):
         v_new = 0.8*v + 0.2*l_var
 
         # compute update for centering signal
-        cv_updates = {c : c_new, v : v_new}
+        cv_updates = {c: c_new, v: v_new}
 
         return OrderedDict(grad_updates.items() + cv_updates.items())

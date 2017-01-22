@@ -2,15 +2,16 @@ import numpy as np
 import theano.tensor as T
 from lasagne.layers import (
   InputLayer, DenseLayer, ElemwiseSumLayer, NonlinearityLayer,
-  reshape, flatten, get_all_params, get_output,
+  reshape, flatten, get_all_params, get_output, ReshapeLayer
 )
 from lasagne.updates import total_norm_constraint
 from lasagne.init import GlorotNormal, Normal
-from layers import GumbelSoftmaxSampleLayer, GaussianSampleLayer
+from layers import GumbelSoftmaxSampleLayer, GaussianSampleLayer, RepeatLayer
 from distributions import log_bernoulli, log_normal2, log_gumbel_softmax
 from gsm import GSM
 
 import theano, lasagne
+theano.config.optimizer = 'None'
 
 
 class DADGM_GSM(GSM):
@@ -29,6 +30,7 @@ class DADGM_GSM(GSM):
         n_lat = n_class*n_cat  # latent stochastic variables
         n_aux = 10  # number of auxiliary variables
         n_hid = 500  # size of hidden layer in encoder/decoder
+        n_sam = self.n_sample = 3  # > 1 b/c we need to sum over a samples for ll
         n_out = n_dim * n_dim * n_chan  # total dimensionality of ouput
         n_in = n_out
         tau = self.tau
@@ -53,6 +55,15 @@ class DADGM_GSM(GSM):
             W=GlorotNormal(), b=Normal(1e-3),
             nonlinearity=relu_shift,
         )
+        # repeatedly sample
+        qa_net_mu = ReshapeLayer(
+            RepeatLayer(qa_net_mu, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_aux),
+        )
+        qa_net_logsigma = ReshapeLayer(
+            RepeatLayer(qa_net_logsigma, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_aux),
+        )
         qa_net_sample = GaussianSampleLayer(qa_net_mu, qa_net_logsigma)
         # - create q(z|a, x)
         qz_net_in = lasagne.layers.InputLayer((None, n_aux))
@@ -64,6 +75,10 @@ class DADGM_GSM(GSM):
             qa_net_in, num_units=n_hid,
             nonlinearity=hid_nl,
         )
+        qz_net_b = ReshapeLayer(
+            RepeatLayer(qz_net_b, n_ax=1, n_rep=n_sam),
+            shape=(-1, n_hid),
+        )
         qz_net = ElemwiseSumLayer([qz_net_a, qz_net_b])
         qz_net = DenseLayer(
             qz_net, num_units=n_hid,
@@ -73,13 +88,7 @@ class DADGM_GSM(GSM):
             qz_net, num_units=n_lat,
             nonlinearity=None,
         )
-        # qz_net_logsigma = DenseLayer(
-        #   qz_net, num_units=n_lat,
-        #   W=GlorotNormal(),
-        #   b=Normal(1e-3),
-        #   nonlinearity=relu_shift,
-        # )
-        # qz_net_sample = GaussianSampleLayer(qz_net_mu, qz_net_logsigma)
+
         qz_net_mu = reshape(qz_net_mu, (-1, n_class))
         qz_net_sample = GumbelSoftmaxSampleLayer(qz_net_mu, tau)
         qz_net_sample = reshape(qz_net_sample, (-1, n_cat, n_class))
@@ -118,6 +127,7 @@ class DADGM_GSM(GSM):
         # save network params
         self.n_class = n_class
         self.n_cat = n_cat
+        self.n_aux = n_aux
 
         self.input_layers = (qa_net_in, qz_net_in, px_net_in)
 
@@ -128,9 +138,16 @@ class DADGM_GSM(GSM):
     def create_objectives(self, deterministic=False):
         x = self.inputs[0]
 
+        # duplicate entries to take into account multiple mc samples
+        n_sam = self.n_sample
+        n_out = x.shape[1]
+        x_rep = x.dimshuffle(0,'x',1).repeat(n_sam, axis=1).reshape((-1, n_out))
+
         # load network params
         n_class = self.n_class
         n_cat = self.n_cat
+        n_aux = self.n_aux
+        n_lat = n_class*n_cat
 
         # compute network
         px_net_mu, pa_net_mu, pa_net_logsigma, \
@@ -144,34 +161,40 @@ class DADGM_GSM(GSM):
         )
         qz_mu, qz_sample = get_output(
             [qz_net_mu, qz_net_sample],
-            {qz_net_in : qa_sample, qa_net_in : x},
+            {qz_net_in: qa_sample, qa_net_in: x},
             deterministic=deterministic,
         )
         pa_mu, pa_logsigma = get_output(
             [pa_net_mu, pa_net_logsigma],
-            {px_net_in : qz_sample},
+            {px_net_in: qz_sample},
             deterministic=deterministic,
         )
         px_mu = get_output(
             px_net_mu,
-            {px_net_in : qz_sample},
+            {px_net_in: qz_sample},
             deterministic=deterministic,
         )
 
-        # calculate the likelihoods
+        # calculate KL(q(z|a)||p(z))
         qz_given_ax = T.nnet.softmax(qz_mu)
         log_qz_given_ax = T.log(qz_given_ax + 1e-20)
-        entropy = T.reshape(qz_given_ax * (log_qz_given_ax - T.log(1.0 / n_class)), (-1, n_cat, n_class))
-        entropy = T.sum(entropy, axis=[1,2])
-
-        log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
+        KL = qz_given_ax * (log_qz_given_ax - T.log(1.0 / n_class))
+        KL = T.reshape(KL, (-1, n_sam, n_cat, n_class))
+        KL = T.sum(KL, axis=[2, 3])
+        # calculate \log p(a|z)p(x|z)
+        log_px_given_z = log_bernoulli(x_rep, px_mu).sum(axis=1)
         log_pa_given_z = log_normal2(qa_sample, pa_mu, pa_logsigma).sum(axis=1)
         log_paxz = log_pa_given_z + log_px_given_z
+        log_paxz = T.reshape(log_paxz, (-1, n_sam))
+        # calculate \log q(a)
+        log_qa = log_normal2(qa_sample, qa_mu, qa_logsigma).sum(axis=1)
+        log_qa = T.reshape(log_qa, (-1, n_sam))
 
-        # logp(z)+logp(a|z)-logq(a)-logq(z|a)
-        elbo = T.mean(log_paxz - entropy)
+        # calculate elbo
+        # \Exp_q(a) [ \log q(a) + \Exp_q(z|a) [ \log p(a|z)p(x|z) ] - KL(q(z|a)||p(z)) ]
+        elbo = log_qa + log_paxz - KL
 
-        return -elbo, -T.mean(entropy)
+        return -T.mean(elbo), -T.mean(KL)
 
     def create_gradients(self, loss, deterministic=False):
         grads = GSM.create_gradients(self, loss, deterministic)
