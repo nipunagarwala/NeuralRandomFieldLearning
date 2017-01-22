@@ -4,7 +4,6 @@ import pickle
 import tarfile
 import numpy as np
 
-# ----------------------------------------------------------------------------
 
 def whiten(X_train, X_valid):
     offset = np.mean(X_train, 0)
@@ -13,7 +12,6 @@ def whiten(X_train, X_valid):
     X_valid = (X_valid - offset) / scale
     return X_train, X_valid
 
-# ----------------------------------------------------------------------------
 
 def load_cifar10():
     """Download and extract the tarball from Alex's website."""
@@ -135,3 +133,68 @@ def load_digits():
     # We just return all the arrays in order, as expected in main().
     # (It doesn't matter how we do this as long as we can read them again.)
     return X_train, y_train, X_val, y_val, X_test, y_test
+
+
+def split_semisup(X, y, n_lbl):
+    n_tot = len(X)
+    idx = np.random.permutation(n_tot)
+
+    X_lbl = X[idx[:n_lbl]].copy()
+    X_unl = X[idx[n_lbl:]].copy()
+    y_lbl = y[idx[:n_lbl]].copy()
+    y_unl = y[idx[n_lbl:]].copy()
+
+    return X_lbl, y_lbl, X_unl, y_unl
+
+
+def load_noise(n=100,d=5):
+    """For debugging"""
+    X = np.random.randint(2,size=(n,1,d,d)).astype('float32')
+    Y = np.random.randint(2,size=(n,)).astype(np.uint8)
+
+    return X, Y
+
+
+def load_h5(h5_path):
+    """This was untested"""
+    import h5py
+    # load training data
+    with h5py.File(h5_path, 'r') as hf:
+        print 'List of arrays in input file:', hf.keys()
+        X = np.array(hf.get('data'))
+        Y = np.array(hf.get('label'))
+        print 'Shape of X: \n', X.shape
+        print 'Shape of Y: \n', Y.shape
+
+        return X, Y
+
+
+def nudge_dataset(X, Y):
+    """
+    This produces a dataset 5 times bigger than the original one,
+    by moving the 8x8 images in X around by 1px to left, right, down, up
+    """
+    direction_vectors = [
+        [[0, 1, 0],
+         [0, 0, 0],
+         [0, 0, 0]],
+
+        [[0, 0, 0],
+         [1, 0, 0],
+         [0, 0, 0]],
+
+        [[0, 0, 0],
+         [0, 0, 1],
+         [0, 0, 0]],
+
+        [[0, 0, 0],
+         [0, 0, 0],
+         [0, 1, 0]]]
+
+    shift = lambda x, w: convolve(x.reshape((8, 8)), mode='constant',
+                                  weights=w).ravel()
+    X = np.concatenate([X] +
+                       [np.apply_along_axis(shift, 1, X, vector)
+                        for vector in direction_vectors])
+    Y = np.concatenate([Y for _ in range(5)], axis=0)
+    return X, Y
