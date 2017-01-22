@@ -146,7 +146,7 @@ class VAE(Model):
         return p_mu
 
     def gen_noise(self, size, n_lat):
-        noise = np.random.rand(size, n_lat)
+        noise = np.random.randn(size, n_lat)
         return noise
 
     def get_params(self):

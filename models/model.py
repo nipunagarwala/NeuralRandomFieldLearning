@@ -168,7 +168,7 @@ class Model(object):
         img_size = np.sqrt(size)
 
         # generate noisy inputs
-        noise = gen_noise(size, n_lat)
+        noise = self.gen_noise(size, n_lat)
         p_mu = self.dream(noise)
         if p_mu is None:
             return None
