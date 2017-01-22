@@ -220,12 +220,6 @@ class ADGM(Model):
 
         log_paxz = log_pa_given_z + log_px_given_z + log_pz
 
-        # # experiment: uniform prior p(a)
-        # a_prior_sigma = T.cast(T.ones_like(qa_logsigma), dtype=theano.config.floatX)
-        # a_prior_mu = T.cast(T.zeros_like(qa_mu), dtype=theano.config.floatX)
-        # log_pa = log_normal(a, a_prior_mu,  a_prior_sigma).sum(axis=1)
-        # log_paxz = log_pa + log_px_given_z + log_pz
-
         # compute the evidence lower bound
         elbo = T.mean(log_paxz - log_qza_given_x)
 
@@ -261,8 +255,8 @@ class ADGM(Model):
         l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
         l_qa, l_qz = self.network
 
-        p_params = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
-        qa_params = lasagne.layers.get_all_params(l_qa, trainable=True)
+        params = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
+        qa_params = lasagne.layers.get_all_params(l_qa_mu, trainable=True)
         qz_params = lasagne.layers.get_all_params(l_qz, trainable=True)
 
         return p_params + qa_params + qz_params

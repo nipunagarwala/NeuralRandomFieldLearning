@@ -94,11 +94,15 @@ class SBN(Model):
 
         # load networks
         l_p_mu, l_q_mu, l_q_sample, _, _, _ = self.network
+        l_q_in, l_p_in, l_cv_in = self.input_layers
 
         # load network output
         z, q_mu = lasagne.layers.get_output(
             [l_q_sample, l_q_mu], deterministic=deterministic)
-        p_mu = lasagne.layers.get_output(l_p_mu, z, deterministic=deterministic)
+        p_mu = lasagne.layers.get_output(
+            l_p_mu, {l_p_in: z},
+            deterministic=deterministic,
+        )
 
         # entropy term
         log_qz_given_x = log_bernoulli(dg(z), q_mu).sum(axis=1)
@@ -110,9 +114,8 @@ class SBN(Model):
         log_pxz = log_pz + log_px_given_z
 
         # save them for later
-        if deterministic == False:
-            self.log_pxz = log_pxz
-            self.log_qz_given_x = log_qz_given_x
+        self.log_pxz = log_pxz
+        self.log_qz_given_x = log_qz_given_x
 
         return log_pxz.flatten(), log_qz_given_x.flatten()
 
@@ -204,6 +207,6 @@ class SBN(Model):
         v_new = 0.8*v + 0.2*l_var
 
         # compute update for centering signal
-        cv_updates = {c : c_new, v : v_new}
+        cv_updates = {c: c_new, v: v_new}
 
-        return OrderedDict( grad_updates.items() + cv_updates.items() )
+        return OrderedDict(grad_updates.items() + cv_updates.items())

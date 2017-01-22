@@ -26,7 +26,7 @@ class DADGM(Model):
     ):
         # save model that wil be created
         self.model = model
-        self.n_sample = 1 # adjustable parameter, though 1 works best in practice
+        self.n_sample = 1  # adjustable parameter, though 1 works best in practice
         Model.__init__(self, n_dim, n_chan, n_out, n_superbatch, opt_alg, opt_params)
 
     def create_model(self, X, Y, n_dim, n_out, n_chan=1):
@@ -84,9 +84,6 @@ class DADGM(Model):
             shape=(-1, n_hid),
         )
         l_qz_hid2 = lasagne.layers.ElemwiseSumLayer([l_qz_hid1a, l_qz_hid1b])
-        # l_qz_hid2 = lasagne.layers.ConcatLayer([l_qz_hid1a, l_qz_hid1b])
-        # l_qz_hid2 = lasagne.layers.NonlinearityLayer(l_qz_hid2, hid_nl)
-        # test w/o a:
         l_qz_hid3 = lasagne.layers.DenseLayer(
             l_qz_hid2, num_units=n_hid,
             nonlinearity=hid_nl,
@@ -188,22 +185,20 @@ class DADGM(Model):
         )
         qz_mu, z = lasagne.layers.get_output(
             [l_qz_mu, l_qz],
-            # {l_qz_in : T.zeros_like(qa_mu), l_qa_in : X},
-            # {l_qz_in : qa_mu, l_qa_in : X},
-            {l_qz_in : a, l_qa_in : X},
+            {l_qz_in: a, l_qa_in: X},
             deterministic=deterministic,
         )
         pa_mu, pa_logsigma = lasagne.layers.get_output(
-            [l_pa_mu, l_pa_logsigma], z,
+            [l_pa_mu, l_pa_logsigma], {l_px_in: z},
             deterministic=deterministic,
         )
 
         if self.model == 'bernoulli':
             px_mu = lasagne.layers.get_output(
-                l_px_mu, z, deterministic=deterministic)
+                l_px_mu, {l_px_in: z}, deterministic=deterministic)
         elif self.model == 'gaussian':
             px_mu, px_logsigma  = lasagne.layers.get_output(
-                [l_px_mu, l_px_logsigma], z,
+                [l_px_mu, l_px_logsigma], {l_px_in: z},
                 deterministic=deterministic,
             )
 
@@ -211,16 +206,11 @@ class DADGM(Model):
         log_qa_given_x  = log_normal2(a, qa_mu, qa_logsigma).sum(axis=1)
         log_qz_given_x = log_bernoulli(z, qz_mu).sum(axis=1)
         log_qz_given_x_dgz = log_bernoulli(dg(z), qz_mu).sum(axis=1)
-        # log_qz_given_x = log_normal2(z, qz_mu, qz_logsigma).sum(axis=1)
-        # log_qz_given_x_dgz = log_normal2(dg(z), qz_mu, qz_logsigma).sum(axis=1)
         log_qza_given_x =  log_qz_given_x + log_qa_given_x
 
         # log-probability term
         z_prior = T.ones_like(z)*np.float32(0.5)
         log_pz = log_bernoulli(z, z_prior).sum(axis=1)
-        # z_prior_sigma = T.cast(T.ones_like(qz_logsigma), dtype=theano.config.floatX)
-        # z_prior_mu = T.cast(T.zeros_like(qz_mu), dtype=theano.config.floatX)
-        # log_pz = log_normal(z, z_prior_mu,  z_prior_sigma).sum(axis=1)
         log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
         log_pa_given_z = log_normal2(a, pa_mu, pa_logsigma).sum(axis=1)
 
@@ -257,7 +247,6 @@ class DADGM(Model):
 
         # load params
         p_params  = lasagne.layers.get_all_params(
-            # [l_px_mu], trainable=True)
             [l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
         qa_params  = lasagne.layers.get_all_params(l_qa_mu, trainable=True)
         qz_params  = lasagne.layers.get_all_params(l_qz, trainable=True)
@@ -277,7 +266,6 @@ class DADGM(Model):
         v_new = 0.8*v + 0.2*l_var
         l = (l0 - c_new) / T.maximum(1, T.sqrt(v_new))
         l_target = (l0 - c_new) / T.maximum(1, T.sqrt(v_new))
-        # l_target = log_px_given_z + log_pz - log_qz_given_x
 
         # compute grad wrt p
         p_grads = T.grad(-log_pxz.mean(), p_params)
@@ -289,18 +277,16 @@ class DADGM(Model):
         # compute grad wrt q_z
         qz_target = T.mean(dg(l_target) * log_qz_given_x_dgz)
         qz_grads = T.grad(-0.2*qz_target, qz_params) # 5x slower rate for q
-        # qz_grads = T.grad(-0.2*T.mean(l0), qz_params) # 5x slower rate for q
-        # qz_grads = T.grad(-0.2*elbo, qz_params) # 5x slower rate for q
 
         # compute grad of cv net
         cv_target = T.mean(l0**2)
-        # cv_grads = [0.2*g for g in T.grad(cv_target, cv_params)]
+        cv_grads = [0.2*g for g in T.grad(cv_target, cv_params)]
 
         # combine and clip gradients
         clip_grad = 1
         max_norm = 5
-        # grads = p_grads + qa_grads + qz_grads + cv_grads
-        grads = p_grads + qa_grads + qz_grads #+ cv_grads
+
+        grads = p_grads + qa_grads + qz_grads + cv_grads
         mgrads = lasagne.updates.total_norm_constraint(grads, max_norm=max_norm)
         cgrads = [T.clip(g, -clip_grad, clip_grad) for g in mgrads]
 
@@ -331,7 +317,7 @@ class DADGM(Model):
         qz_params  = lasagne.layers.get_all_params(l_qz, trainable=True)
         cv_params = lasagne.layers.get_all_params(l_cv, trainable=True)
 
-        return p_params + qa_params +qz_params # + cv_params
+        return p_params + qa_params + qz_params + cv_params
 
     def create_updates(self, grads, params, alpha, opt_alg, opt_params):
         # call super-class to generate SGD/ADAM updates
@@ -356,4 +342,4 @@ class DADGM(Model):
         # compute update for centering signal
         cv_updates = {c : c_new, v : v_new}
 
-        return OrderedDict( grad_updates.items() + cv_updates.items() )
+        return OrderedDict(grad_updates.items() + cv_updates.items())
