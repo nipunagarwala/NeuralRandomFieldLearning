@@ -213,8 +213,7 @@ class DADGM_GSM(GSM):
         px_net_mu = self.network[0]
 
         px_mu = get_output(
-            px_net_mu,
-            {px_net_in : s},
+            px_net_mu, {px_net_in : s},
             deterministic=deterministic,
         )
 
@@ -225,7 +224,10 @@ class DADGM_GSM(GSM):
         qz_net_mu, qa_net_mu, qa_net_logsigma, \
         qz_net_sample, qa_net_sample = self.network
 
-        p_params = get_all_params([px_net_mu, pa_net_mu, pa_net_logsigma], trainable=True)
+        p_params = get_all_params(
+            [px_net_mu, pa_net_mu, pa_net_logsigma],
+            trainable=True,
+        )
         qa_params = get_all_params(qa_net_sample, trainable=True)
         qz_params = get_all_params(qz_net_sample, trainable=True)
 

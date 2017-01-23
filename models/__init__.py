@@ -7,3 +7,4 @@ from dadgm_gsm import DADGM_GSM
 from vae_reinforce import VAE_REINFORCE
 from gsm import GSM
 from rbm import RBM
+from rbm_dadgm import RBM_DADGM

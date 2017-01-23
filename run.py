@@ -58,47 +58,52 @@ def train(args):
     if args.model == 'mlp':
         model = models.MLP(
             n_dim=n_dim, n_out=n_out, n_superbatch=args.n_superbatch,
-            opt_alg=args.alg, opt_params=p
+            opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'vae':
         model = models.VAE(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'vae_reinforce':
         model = models.VAE_REINFORCE(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'sbn':
         model = models.SBN(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'adgm':
         model = models.ADGM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'dadgm':
         model = models.DADGM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'dadgm_gsm':
         model = models.DADGM_GSM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'gsm':
         model = models.GSM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     elif args.model == 'rbm':
         model = models.RBM(
             n_dim=n_dim, n_out=n_out, n_chan=n_channels,
-            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
+        )
+    elif args.model == 'rbm_dadgm':
+        model = models.RBM_DADGM(
+            n_dim=n_dim, n_out=n_out, n_chan=n_channels,
+            n_superbatch=args.n_superbatch, opt_alg=args.alg, opt_params=p,
         )
     else:
         raise ValueError('Invalid model')

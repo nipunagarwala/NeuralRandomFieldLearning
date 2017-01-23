@@ -27,7 +27,7 @@ class ADGM(Model):
         # params
         n_lat = 200  # latent stochastic variables
         n_aux = 10  # auxiliary variables
-        n_hid = 500  # size of hidden layer in encoder/decoder
+        n_hid = 499  # size of hidden layer in encoder/decoder
         n_sam = self.n_sample  # number of monte-carlo samples
         n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
         hid_nl = lasagne.nonlinearities.rectify
@@ -181,24 +181,24 @@ class ADGM(Model):
         )
         qz_mu, qz_logsigma, z = lasagne.layers.get_output(
             [l_qz_mu, l_qz_logsigma, l_qz],
-            {l_qz_in : a, l_qa_in : X},
+            {l_qz_in: a, l_qa_in: X},
             deterministic=deterministic,
         )
         pa_mu, pa_logsigma = lasagne.layers.get_output(
             [l_pa_mu, l_pa_logsigma],
-            {l_px_in : z},
+            {l_px_in: z},
             deterministic=deterministic,
         )
 
         if self.model == 'bernoulli':
             px_mu = lasagne.layers.get_output(
-                l_px_mu, {l_px_in : z},
+                l_px_mu, {l_px_in: z},
                 deterministic=deterministic
             )
         elif self.model == 'gaussian':
             px_mu, px_logsigma  = lasagne.layers.get_output(
                 [l_px_mu, l_px_logsigma],
-                {l_px_in : z},
+                {l_px_in: z},
                 deterministic=deterministic,
             )
 
@@ -251,12 +251,14 @@ class ADGM(Model):
         return noise
 
     def get_params(self):
-        l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
-        l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
-        l_qa, l_qz = self.network
+        l_px_mu, _, l_pa_mu, l_pa_logsigma, \
+        _, _, _, _, l_qa, l_qz = self.network
 
-        params = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_pa_logsigma], trainable=True)
-        qa_params = lasagne.layers.get_all_params(l_qa_mu, trainable=True)
+        p_params = lasagne.layers.get_all_params(
+            [l_px_mu, l_pa_mu, l_pa_logsigma],
+            trainable=True,
+        )
+        qa_params = lasagne.layers.get_all_params(l_qa, trainable=True)
         qz_params = lasagne.layers.get_all_params(l_qz, trainable=True)
 
         return p_params + qa_params + qz_params
