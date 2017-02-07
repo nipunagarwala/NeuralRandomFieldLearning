@@ -31,7 +31,7 @@ class ADGM(Model):
         n_sam = self.n_sample  # number of monte-carlo samples
         n_out = n_dim * n_dim * n_chan # total dimensionality of ouput
         hid_nl = lasagne.nonlinearities.rectify
-        relu_shift = lambda av: T.nnet.relu(av+10)-10 # for numerical stability
+        relu_shift = lambda av: T.nnet.relu(av + 10) - 10 # for numerical stability
 
         # create the encoder network
         # create q(a|x)
@@ -69,9 +69,8 @@ class ADGM(Model):
         l_qa = GaussianSampleLayer(l_qa_mu, l_qa_logsigma)
 
         # create q(z|a,x)
-        l_qz_in = lasagne.layers.InputLayer((None, n_aux))
         l_qz_hid1a = lasagne.layers.DenseLayer(
-            l_qz_in, num_units=n_hid,
+            l_qa, num_units=n_hid,
             W=lasagne.init.GlorotNormal('relu'),
             b=lasagne.init.Normal(1e-3),
             nonlinearity=hid_nl,
@@ -150,7 +149,7 @@ class ADGM(Model):
             nonlinearity=relu_shift,
         )
 
-        self.input_layers = (l_qa_in, l_qz_in, l_px_in)
+        self.input_layers = (l_qa_in, l_px_in)
         self.n_lat = n_lat
         self.n_hid = n_hid
 
@@ -172,18 +171,14 @@ class ADGM(Model):
         l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
         l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
         l_qa, l_qz = self.network
-        l_qa_in, l_qz_in, l_px_in = self.input_layers
+        l_qa_in, l_px_in = self.input_layers
 
         # load network output
-        qa_mu, qa_logsigma, a = lasagne.layers.get_output(
-            [l_qa_mu, l_qa_logsigma, l_qa],
-            deterministic=deterministic,
-        )
-        qz_mu, qz_logsigma, z = lasagne.layers.get_output(
-            [l_qz_mu, l_qz_logsigma, l_qz],
-            {l_qz_in: a, l_qa_in: X},
-            deterministic=deterministic,
-        )
+        qz_mu, qz_logsigma, qa_mu, qa_logsigma, a, z \
+            = lasagne.layers.get_output(
+                [l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, l_qa, l_qz],
+                deterministic=deterministic,
+            )
         pa_mu, pa_logsigma = lasagne.layers.get_output(
             [l_pa_mu, l_pa_logsigma],
             {l_px_in: z},
@@ -240,14 +235,14 @@ class ADGM(Model):
     def gen_samples(self, deterministic=False):
         s = self.inputs[-1]
         # put it through the decoder
-        _, _, l_px_in = self.input_layers
+        _, l_px_in = self.input_layers
         l_px_mu = self.network[0]
         px_mu = lasagne.layers.get_output(l_px_mu, {l_px_in : s})
 
         return px_mu
 
     def gen_noise(self, size, n_lat):
-        noise = np.random.rand(size, n_lat)
+        noise = np.random.randn(size, n_lat)
         return noise
 
     def get_params(self):
